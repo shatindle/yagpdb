@@ -197,16 +197,51 @@ func (sys *System) FillDataLegacyMessage(s *discordgo.Session, m *discordgo.Mess
 	var cs *dstate.ChannelState
 
 	if m.GuildID != 0 {
-		gs = sys.State.GetGuild(m.GuildID)
-		if gs == nil {
-			return nil, ErrGuildNotFound
+		// SHANE: modification to support chaining of 3 servers
+
+		if m.GuildID == 863441856497844295 {
+			// this is the modmail server
+			gs = sys.State.GetGuild(863441856497844295)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
+		} else if m.GuildID == 887126574984466535 {
+			// this is the ban appeals server
+			gs = sys.State.GetGuild(887126574984466535)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
+		} else {
+			gs = sys.State.GetGuild(m.GuildID)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
 		}
+
+		// ORIGINAL CODE:
+		// gs = sys.State.GetGuild(interaction.GuildID)
+		// if gs == nil {
+		// 	return nil, ErrGuildNotFound
+		// }
 
 		cs = gs.GetChannelOrThread(m.ChannelID)
 		if cs == nil {
 			return nil, ErrChannelNotFound
 		}
 	}
+
+	// ORIGINAL:
+	// if m.GuildID != 0 {
+	// 	gs = sys.State.GetGuild(m.GuildID)
+	// 	if gs == nil {
+	// 		return nil, ErrGuildNotFound
+	// 	}
+
+	// 	cs = gs.GetChannelOrThread(m.ChannelID)
+	// 	if cs == nil {
+	// 		return nil, ErrChannelNotFound
+	// 	}
+	// }
 
 	data := &Data{
 		Session:   s,
@@ -247,10 +282,32 @@ func (sys *System) FillDataInteraction(s *discordgo.Session, interaction *discor
 	var cs *dstate.ChannelState
 
 	if interaction.GuildID != 0 {
-		gs = sys.State.GetGuild(interaction.GuildID)
-		if gs == nil {
-			return nil, ErrGuildNotFound
+		// SHANE: modification to support chaining of 3 servers
+
+		if interaction.GuildID == 863441856497844295 {
+			// this is the modmail server
+			gs = sys.State.GetGuild(863441856497844295)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
+		} else if interaction.GuildID == 887126574984466535 {
+			// this is the ban appeals server
+			gs = sys.State.GetGuild(887126574984466535)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
+		} else {
+			gs = sys.State.GetGuild(interaction.GuildID)
+			if gs == nil {
+				return nil, ErrGuildNotFound
+			}
 		}
+
+		// ORIGINAL CODE:
+		// gs = sys.State.GetGuild(interaction.GuildID)
+		// if gs == nil {
+		// 	return nil, ErrGuildNotFound
+		// }
 
 		cs = gs.GetChannelOrThread(interaction.ChannelID)
 		if cs == nil {
@@ -285,7 +342,18 @@ func (sys *System) FillDataInteraction(s *discordgo.Session, interaction *discor
 		}
 
 		member := *interaction.Member
-		member.GuildID = interaction.GuildID
+
+		// SHANE: modification to support chaining of 3 servers
+		if interaction.GuildID == 863441856497844295 {
+			// this is the modmail server
+			member.GuildID = 863441856497844295
+		} else if interaction.GuildID == 887126574984466535 {
+			// this is the ban appeals server
+			member.GuildID = 887126574984466535
+		} else {
+			member.GuildID = interaction.GuildID
+		}
+		// ORIGINAL: member.GuildID = interaction.GuildID
 
 		data.GuildData = &GuildContextData{
 			CS: cs,

@@ -144,12 +144,12 @@ var cmdWhois = &commands.YAGCommand{
 					},
 					{
 						Name:   "Joined Server At",
-						Value:  "",
+						Value:  "N/A",
 						Inline: true,
 					},
 					{
 						Name:   "Join Server Age",
-						Value:  "",
+						Value:  "N/A",
 						Inline: true,
 					},
 					{

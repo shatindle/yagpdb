@@ -108,7 +108,7 @@ var cmdWhois = &commands.YAGCommand{
 		if parsed.Args[0].Value != nil {
 			// TODO: test only
 			fmt.Println("we're in the user argument")
-			testoutput, _ := json.Marshal(member)
+			testoutput, _ := json.Marshal(parsed.Args[0].Value)
 			fmt.Println(string(testoutput))
 			member = parsed.Args[0].Value.(*dstate.MemberState)
 		} else {

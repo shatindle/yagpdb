@@ -116,7 +116,7 @@ var cmdWhois = &commands.YAGCommand{
 			}
 		}
 
-		if member.Member == nil && parsed.Args[0].Value != nil {
+		if member.Member == nil {
 			partialmember := parsed.Args[0].Value.(dstate.MemberState)
 
 			t := bot.SnowflakeToTime(partialmember.User.ID)
@@ -221,6 +221,11 @@ var cmdWhois = &commands.YAGCommand{
 			// }
 
 			return embed, nil
+		}
+
+		if member.Member == nil {
+			joinedAtStr = "Couldn't find out"
+			joinedAtDurStr = "Couldn't find out"
 		} else {
 			parsedJoinedAt, _ := member.Member.JoinedAt.Parse()
 			joinedAtStr = parsedJoinedAt.UTC().Format(time.RFC822)

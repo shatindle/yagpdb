@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"database/sql"
+	"encoding/json" // TODO: test only
 	"fmt"
 	"os"
 	"time"
@@ -105,6 +106,10 @@ var cmdWhois = &commands.YAGCommand{
 
 		var member *dstate.MemberState
 		if parsed.Args[0].Value != nil {
+			// TODO: test only
+			fmt.Println("we're in the user argument")
+			testoutput, _ := json.Marshal(member)
+			fmt.Println(string(testoutput))
 			member = parsed.Args[0].Value.(*dstate.MemberState)
 		} else {
 			member = parsed.GuildData.MS

@@ -109,7 +109,7 @@ var cmdWhois = &commands.YAGCommand{
 		if parsed.Args[0].Value != nil {
 			// TODO: test only
 			partialmember := parsed.Args[0].Value.(dstate.MemberState)
-			t := bot.SnowflakeToTime(member.User.ID)
+			t := bot.SnowflakeToTime(partialmember.User.ID)
 			createdDurStr := common.HumanizeDuration(common.DurationPrecisionHours, time.Since(t))
 			if createdDurStr == "" {
 				createdDurStr = "Less than an hour ago"
@@ -120,12 +120,12 @@ var cmdWhois = &commands.YAGCommand{
 				Fields: []*discordgo.MessageEmbedField{
 					{
 						Name:   "ID",
-						Value:  discordgo.StrID(member.User.ID),
+						Value:  discordgo.StrID(partialmember.User.ID),
 						Inline: true,
 					},
 					{
 						Name:   "Avatar",
-						Value:  "[Link](" + discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar) + ")",
+						Value:  "[Link](" + discordgo.EndpointUserAvatar(partialmember.User.ID, partialmember.User.Avatar) + ")",
 						Inline: true,
 					},
 					{
@@ -155,12 +155,12 @@ var cmdWhois = &commands.YAGCommand{
 					},
 				},
 				Thumbnail: &discordgo.MessageEmbedThumbnail{
-					URL: discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar),
+					URL: discordgo.EndpointUserAvatar(partialmember.User.ID, partialmember.User.Avatar),
 				},
 			}
 
 			if config.UsernameLoggingEnabled.Bool {
-				usernames, err := GetUsernames(parsed.Context(), member.User.ID, 5, 0)
+				usernames, err := GetUsernames(parsed.Context(), partialmember.User.ID, 5, 0)
 				if err != nil {
 					return err, err
 				}
@@ -184,7 +184,7 @@ var cmdWhois = &commands.YAGCommand{
 
 			if config.NicknameLoggingEnabled.Bool {
 
-				nicknames, err := GetNicknames(parsed.Context(), member.User.ID, parsed.GuildData.GS.ID, 5, 0)
+				nicknames, err := GetNicknames(parsed.Context(), partialmember.User.ID, parsed.GuildData.GS.ID, 5, 0)
 				if err != nil {
 					return err, err
 				}

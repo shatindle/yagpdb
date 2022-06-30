@@ -834,8 +834,22 @@ var ModerationCommands = []*commands.YAGCommand{
 					return fmt.Sprintf("Warning with given id : `%d` does not exist.", parsed.Switches["id"].Int()), nil
 				}
 
+				// SHANE: added usernamne lookup
+				var username string = warn[0].UserID
+
+				userIdInt, idErr := strconv.ParseInt(warn[0].UserID, 10, 64)
+
+				if idErr == nil {
+					userDetails, userLookupErr := common.BotSession.User(userIdInt)
+
+					if userLookupErr == nil {
+						username = userDetails.Username + "#" + userDetails.Discriminator + "\n" + warn[0].UserID
+					}
+				}
+				// SHANE: end of edits
+
 				return &discordgo.MessageEmbed{
-					Title:       fmt.Sprintf("Warning#%d - User : %s", warn[0].ID, warn[0].UserID),
+					Title:       fmt.Sprintf("Warning#%d - User : %s", warn[0].ID, username),
 					Description: fmt.Sprintf("<t:%d:f> - **Reason** : %s", warn[0].CreatedAt.Unix(), warn[0].Message),
 					Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("By: %s (%13s)", warn[0].AuthorUsernameDiscrim, warn[0].AuthorID)},
 				}, nil
@@ -1334,8 +1348,18 @@ func PaginateWarnings(parsed *dcmd.Data) func(p *paginatedmessages.PaginatedMess
 			currentField.Value = "No Warnings"
 		}
 
+		// SHANE: added usernamne lookup
+		var username string = strconv.FormatInt(userID, 10)
+
+		userDetails, userLookupErr := common.BotSession.User(userID)
+
+		if userLookupErr == nil {
+			username = userDetails.Username + "#" + userDetails.Discriminator + "\n" + username
+		}
+		// SHANE: end of edits
+
 		return &discordgo.MessageEmbed{
-			Title:       fmt.Sprintf("Warnings - User : %d", userID),
+			Title:       fmt.Sprintf("Warnings - User : %s", username),
 			Description: desc,
 			Fields:      fields,
 		}, nil

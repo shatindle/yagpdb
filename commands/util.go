@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/json" // TODO: test
 	"fmt"
 	"strconv"
 	"strings"
@@ -238,10 +237,7 @@ func (ma *MemberArg) ParseFromMessage(def *dcmd.ArgDef, part string, data *dcmd.
 	if err != nil {
 		if common.IsDiscordErr(err, discordgo.ErrCodeUnknownMember, discordgo.ErrCodeUnknownUser) {
 			// SHANE: edit to allow global user lookup
-			fmt.Println("we're looking up a user") // TODO: test
 			backupmember, err2 := common.BotSession.User(id)
-			testoutput, _ := json.Marshal(backupmember) // TODO: test
-			fmt.Println(string(testoutput))             // TODO: test
 
 			if common.IsDiscordErr(err2, discordgo.ErrCodeUnknownUser) {
 				return nil, dcmd.NewSimpleUserError("User not found")

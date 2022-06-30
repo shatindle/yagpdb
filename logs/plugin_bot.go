@@ -149,16 +149,6 @@ var cmdWhois = &commands.YAGCommand{
 						Inline: true,
 					},
 					{
-						Name:   "Joined Server At",
-						Value:  "N/A",
-						Inline: true,
-					},
-					{
-						Name:   "Join Server Age",
-						Value:  "N/A",
-						Inline: true,
-					},
-					{
 						Name:   "Status",
 						Value:  "NOT ON SERVER",
 						Inline: true,
@@ -168,57 +158,6 @@ var cmdWhois = &commands.YAGCommand{
 					URL: discordgo.EndpointUserAvatar(partialmember.User.ID, partialmember.User.Avatar),
 				},
 			}
-
-			// if config.UsernameLoggingEnabled.Bool {
-			// 	usernames, err := GetUsernames(parsed.Context(), partialmember.User.ID, 5, 0)
-			// 	if err != nil {
-			// 		return err, err
-			// 	}
-
-			// 	usernamesStr := "```\n"
-			// 	for _, v := range usernames {
-			// 		usernamesStr += fmt.Sprintf("%20s: %s\n", v.CreatedAt.Time.UTC().Format(time.RFC822), v.Username.String)
-			// 	}
-			// 	usernamesStr += "```"
-
-			// 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			// 		Name:  "5 last usernames",
-			// 		Value: usernamesStr,
-			// 	})
-			// } else {
-			// 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			// 		Name:  "Usernames",
-			// 		Value: "Username tracking disabled",
-			// 	})
-			// }
-
-			// if config.NicknameLoggingEnabled.Bool {
-
-			// 	nicknames, err := GetNicknames(parsed.Context(), partialmember.User.ID, parsed.GuildData.GS.ID, 5, 0)
-			// 	if err != nil {
-			// 		return err, err
-			// 	}
-
-			// 	nicknameStr := "```\n"
-			// 	if len(nicknames) < 1 {
-			// 		nicknameStr += "No nicknames tracked"
-			// 	} else {
-			// 		for _, v := range nicknames {
-			// 			nicknameStr += fmt.Sprintf("%20s: %s\n", v.CreatedAt.Time.UTC().Format(time.RFC822), v.Nickname.String)
-			// 		}
-			// 	}
-			// 	nicknameStr += "```"
-
-			// 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			// 		Name:  "5 last nicknames",
-			// 		Value: nicknameStr,
-			// 	})
-			// } else {
-			// 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			// 		Name:  "Nicknames",
-			// 		Value: "Nickname tracking disabled",
-			// 	})
-			// }
 
 			return embed, nil
 		}

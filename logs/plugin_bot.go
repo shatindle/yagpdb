@@ -116,7 +116,7 @@ var cmdWhois = &commands.YAGCommand{
 			}
 		}
 
-		if member.Member == nil {
+		if member == nil {
 			partialmember := parsed.Args[0].Value.(dstate.MemberState)
 
 			t := bot.SnowflakeToTime(partialmember.User.ID)

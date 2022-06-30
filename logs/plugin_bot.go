@@ -107,7 +107,7 @@ var cmdWhois = &commands.YAGCommand{
 
 		var member *dstate.MemberState
 		if parsed.Args[0].Value != nil {
-			member = parsed.Args[0].Value.(*dstate.MemberState)
+			member, _ = parsed.Args[0].Value.(*dstate.MemberState)
 		} else {
 			member = parsed.GuildData.MS
 			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {

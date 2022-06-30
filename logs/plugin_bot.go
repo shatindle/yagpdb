@@ -2,8 +2,7 @@ package logs
 
 import (
 	"context"
-	"database/sql" // TODO: test only
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"os"
 	"time"
@@ -108,16 +107,23 @@ var cmdWhois = &commands.YAGCommand{
 
 		var member *dstate.MemberState
 		if parsed.Args[0].Value != nil {
-			// TODO: test only
+			member = parsed.Args[0].Value.(*dstate.MemberState)
+		} else {
+			member = parsed.GuildData.MS
+			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {
+				// Prefer state member over the one provided in the message, since it may have presence data
+				member = sm
+			}
+		}
+
+		if member.Member == nil && parsed.Args[0].Value != nil {
 			partialmember := parsed.Args[0].Value.(dstate.MemberState)
+
 			t := bot.SnowflakeToTime(partialmember.User.ID)
 			createdDurStr := common.HumanizeDuration(common.DurationPrecisionHours, time.Since(t))
 			if createdDurStr == "" {
 				createdDurStr = "Less than an hour ago"
 			}
-			fmt.Println("the user to embed...")          // TODO: test
-			testoutput, _ := json.Marshal(partialmember) // TODO: test
-			fmt.Println(string(testoutput))              // TODO: test
 
 			embed := &discordgo.MessageEmbed{
 				Title: fmt.Sprintf("%s#%s", partialmember.User.Username, partialmember.User.Discriminator),
@@ -215,17 +221,6 @@ var cmdWhois = &commands.YAGCommand{
 			// }
 
 			return embed, nil
-		} else {
-			member = parsed.GuildData.MS
-			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {
-				// Prefer state member over the one provided in the message, since it may have presence data
-				member = sm
-			}
-		}
-
-		if member.Member == nil {
-			joinedAtStr = "Couldn't find out"
-			joinedAtDurStr = "Couldn't find out"
 		} else {
 			parsedJoinedAt, _ := member.Member.JoinedAt.Parse()
 			joinedAtStr = parsedJoinedAt.UTC().Format(time.RFC822)

@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"database/sql" // TODO: test only
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -114,6 +115,9 @@ var cmdWhois = &commands.YAGCommand{
 			if createdDurStr == "" {
 				createdDurStr = "Less than an hour ago"
 			}
+			fmt.Println("the user to embed...")          // TODO: test
+			testoutput, _ := json.Marshal(partialmember) // TODO: test
+			fmt.Println(string(testoutput))              // TODO: test
 
 			embed := &discordgo.MessageEmbed{
 				Title: fmt.Sprintf("%s#%s", partialmember.User.Username, partialmember.User.Discriminator),

@@ -249,7 +249,7 @@ func (ma *MemberArg) ParseFromMessage(def *dcmd.ArgDef, part string, data *dcmd.
 
 			returnMember := dstate.MemberState{
 				User:     *backupmember,
-				GuildID:  0,
+				GuildID:  725341600670023700,
 				Member:   nil,
 				Presence: nil,
 			}

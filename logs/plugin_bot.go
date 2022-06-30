@@ -110,7 +110,8 @@ var cmdWhois = &commands.YAGCommand{
 			fmt.Println("we're in the user argument")
 			testoutput, _ := json.Marshal(parsed.Args[0].Value)
 			fmt.Println(string(testoutput))
-			*member = parsed.Args[0].Value.(dstate.MemberState)
+			testmember := parsed.Args[0].Value.(dstate.MemberState)
+			*member = testmember
 		} else {
 			member = parsed.GuildData.MS
 			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {

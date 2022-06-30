@@ -236,7 +236,23 @@ func (ma *MemberArg) ParseFromMessage(def *dcmd.ArgDef, part string, data *dcmd.
 	member, err := bot.GetMember(data.GuildData.GS.ID, id)
 	if err != nil {
 		if common.IsDiscordErr(err, discordgo.ErrCodeUnknownMember, discordgo.ErrCodeUnknownUser) {
-			return nil, dcmd.NewSimpleUserError("User not a member of the server")
+			// SHANE: edit to allow global user lookup
+			backupmember, err2 := common.BotSession.User(id)
+
+			if common.IsDiscordErr(err2, discordgo.ErrCodeUnknownUser) {
+				return nil, dcmd.NewSimpleUserError("User not found")
+			}
+
+			returnMember := dstate.MemberState{
+				User:     *backupmember,
+				GuildID:  0,
+				Member:   nil,
+				Presence: nil,
+			}
+
+			return returnMember, nil
+			// SHANE: end of edits
+			// ORIGINAL: return nil, dcmd.NewSimpleUserError("User not a member of the server")
 		}
 
 		return nil, err

@@ -2,8 +2,7 @@ package logs
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json" // TODO: test only
+	"database/sql" // TODO: test only
 	"fmt"
 	"os"
 	"time"
@@ -104,14 +103,114 @@ var cmdWhois = &commands.YAGCommand{
 			return nil, err
 		}
 
+		var nick, joinedAtStr, joinedAtDurStr string
+
 		var member *dstate.MemberState
 		if parsed.Args[0].Value != nil {
 			// TODO: test only
-			fmt.Println("we're in the user argument")
-			testoutput, _ := json.Marshal(parsed.Args[0].Value)
-			fmt.Println(string(testoutput))
-			testmember := parsed.Args[0].Value.(dstate.MemberState)
-			*member = testmember
+			partialmember := parsed.Args[0].Value.(dstate.MemberState)
+			t := bot.SnowflakeToTime(member.User.ID)
+			createdDurStr := common.HumanizeDuration(common.DurationPrecisionHours, time.Since(t))
+			if createdDurStr == "" {
+				createdDurStr = "Less than an hour ago"
+			}
+
+			embed := &discordgo.MessageEmbed{
+				Title: fmt.Sprintf("%s#%s", partialmember.User.Username, partialmember.User.Discriminator),
+				Fields: []*discordgo.MessageEmbedField{
+					{
+						Name:   "ID",
+						Value:  discordgo.StrID(member.User.ID),
+						Inline: true,
+					},
+					{
+						Name:   "Avatar",
+						Value:  "[Link](" + discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar) + ")",
+						Inline: true,
+					},
+					{
+						Name:   "Account Created",
+						Value:  t.UTC().Format(time.RFC822),
+						Inline: true,
+					},
+					{
+						Name:   "Account Age",
+						Value:  createdDurStr,
+						Inline: true,
+					},
+					{
+						Name:   "Joined Server At",
+						Value:  "",
+						Inline: true,
+					},
+					{
+						Name:   "Join Server Age",
+						Value:  "",
+						Inline: true,
+					},
+					{
+						Name:   "Status",
+						Value:  "NOT ON SERVER",
+						Inline: true,
+					},
+				},
+				Thumbnail: &discordgo.MessageEmbedThumbnail{
+					URL: discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar),
+				},
+			}
+
+			if config.UsernameLoggingEnabled.Bool {
+				usernames, err := GetUsernames(parsed.Context(), member.User.ID, 5, 0)
+				if err != nil {
+					return err, err
+				}
+
+				usernamesStr := "```\n"
+				for _, v := range usernames {
+					usernamesStr += fmt.Sprintf("%20s: %s\n", v.CreatedAt.Time.UTC().Format(time.RFC822), v.Username.String)
+				}
+				usernamesStr += "```"
+
+				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+					Name:  "5 last usernames",
+					Value: usernamesStr,
+				})
+			} else {
+				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+					Name:  "Usernames",
+					Value: "Username tracking disabled",
+				})
+			}
+
+			if config.NicknameLoggingEnabled.Bool {
+
+				nicknames, err := GetNicknames(parsed.Context(), member.User.ID, parsed.GuildData.GS.ID, 5, 0)
+				if err != nil {
+					return err, err
+				}
+
+				nicknameStr := "```\n"
+				if len(nicknames) < 1 {
+					nicknameStr += "No nicknames tracked"
+				} else {
+					for _, v := range nicknames {
+						nicknameStr += fmt.Sprintf("%20s: %s\n", v.CreatedAt.Time.UTC().Format(time.RFC822), v.Nickname.String)
+					}
+				}
+				nicknameStr += "```"
+
+				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+					Name:  "5 last nicknames",
+					Value: nicknameStr,
+				})
+			} else {
+				embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+					Name:  "Nicknames",
+					Value: "Nickname tracking disabled",
+				})
+			}
+
+			return embed, nil
 		} else {
 			member = parsed.GuildData.MS
 			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {
@@ -119,8 +218,6 @@ var cmdWhois = &commands.YAGCommand{
 				member = sm
 			}
 		}
-
-		var nick, joinedAtStr, joinedAtDurStr string
 
 		if member.Member == nil {
 			joinedAtStr = "Couldn't find out"

@@ -102,6 +102,12 @@ func (c *Context) baseChannelArg(v interface{}) *dstate.ChannelState {
 						return &v
 					}
 				}
+				// Do the same for thread names
+				for _, v := range c.GS.Threads {
+					if strings.EqualFold(t, v.Name) && v.Type == discordgo.ChannelTypeGuildPublicThread || v.Type == discordgo.ChannelTypeGuildPrivateThread {
+						return &v
+					}
+				}
 			}
 		}
 	}
@@ -177,7 +183,7 @@ func (c *Context) sendNestedTemplate(channel interface{}, dm bool, name string, 
 				return "", errors.New("unknown channel")
 			}
 
-			cs = c.GS.GetChannel(cID)
+			cs = c.GS.GetChannelOrThread(cID)
 			if cs == nil {
 				return "", errors.New("unknown channel")
 			}
@@ -383,6 +389,9 @@ func (c *Context) tmplSendMessage(filterSpecialMentions bool, returnID bool) fun
 					typedMsg.Content = info + "\n" + typedMsg.Content
 				}
 			}
+			if msgSend.Reference != nil && msgSend.Reference.ChannelID == 0 {
+				msgSend.Reference.ChannelID = cid
+			}
 		default:
 			if isDM {
 				msgSend.Content = info + "\n" + ToString(msg)
@@ -402,6 +411,10 @@ func (c *Context) tmplSendMessage(filterSpecialMentions bool, returnID bool) fun
 }
 
 func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel interface{}, msgID interface{}, msg interface{}) (interface{}, error) {
+	parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
+	if !filterSpecialMentions {
+		parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
+	}
 	return func(channel interface{}, msgID interface{}, msg interface{}) (interface{}, error) {
 		if c.IncreaseCheckGenericAPICall() {
 			return "", ErrTooManyAPICalls
@@ -414,8 +427,9 @@ func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel inter
 
 		mID := ToInt64(msgID)
 		msgEdit := &discordgo.MessageEdit{
-			ID:      mID,
-			Channel: cid,
+			ID:              mID,
+			Channel:         cid,
+			AllowedMentions: discordgo.AllowedMentions{Parse: parseMentions},
 		}
 		var err error
 
@@ -445,6 +459,7 @@ func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel inter
 			}
 			msgEdit.Content = typedMsg.Content
 			msgEdit.Embeds = typedMsg.Embeds
+			msgEdit.AllowedMentions = discordgo.AllowedMentions{Parse: parseMentions}
 		default:
 			temp := fmt.Sprint(msg)
 			msgEdit.Content = &temp

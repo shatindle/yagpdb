@@ -213,7 +213,7 @@ var cmdWhois = &commands.YAGCommand{
 				},
 				{
 					Name:   "Avatar",
-					Value:  "[Link](" + discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar) + ")",
+					Value:  "[Link](" + member.User.AvatarURL("256") + ")",
 					Inline: true,
 				},
 				{
@@ -243,7 +243,7 @@ var cmdWhois = &commands.YAGCommand{
 				},
 			},
 			Thumbnail: &discordgo.MessageEmbedThumbnail{
-				URL: discordgo.EndpointUserAvatar(member.User.ID, member.User.Avatar),
+				URL: member.User.AvatarURL("256"),
 			},
 		}
 

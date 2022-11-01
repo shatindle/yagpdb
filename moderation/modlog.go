@@ -92,13 +92,19 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 			authorUsername = author.Username + "#" + author.Discriminator
 		}
 
+		timeoutReason := "**USER TIMED OUT**"
+
+		if reason != "" {
+			timeoutReason = timeoutReason + ": " + reason
+		}
+
 		warning := &WarningModel{
 			GuildID:               guildID,
 			UserID:                discordgo.StrID(target.ID),
 			AuthorID:              discordgo.StrID(author.ID),
 			AuthorUsernameDiscrim: authorUsername,
 
-			Message: reason,
+			Message: timeoutReason,
 		}
 
 		// Create the entry in the database

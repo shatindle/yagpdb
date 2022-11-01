@@ -41,7 +41,7 @@ var (
 
 func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogAction, target *discordgo.User, reason, logLink string) error {
 	channelID := config.IntActionChannel()
-	config.GetGuildID()
+	guildID := config.GetGuildID() // SHANE: capture this variable
 	if channelID == 0 {
 		return nil
 	}
@@ -83,12 +83,32 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 		}
 	}
 
+	// SHANE: log all timeouts as warnings
+	// if this is a Timed out modlog, then record a warning
+	if action.Prefix == "Timed out" {
+		warning := &WarningModel{
+			GuildID:               guildID,
+			UserID:                discordgo.StrID(target.ID),
+			AuthorID:              discordgo.StrID(author.ID),
+			AuthorUsernameDiscrim: author.Username + "#" + author.Discriminator,
+
+			Message: reason,
+		}
+
+		// Create the entry in the database
+		err := common.GORM.Create(warning).Error
+		if err != nil {
+			return common.ErrWithCaller(err)
+		}
+	}
+	// SHANE: end of edits
+
 	m, err := common.BotSession.ChannelMessageSendEmbed(channelID, embed)
 	if err != nil {
 		if common.IsDiscordErr(err, discordgo.ErrCodeMissingAccess, discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeUnknownChannel) {
 			// disable the modlog
 			config.ActionChannel = ""
-			config.Save(config.GetGuildID())
+			config.Save(guildID) // SHANE: use the captured variable
 			return nil
 		}
 		return err

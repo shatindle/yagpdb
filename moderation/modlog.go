@@ -86,11 +86,17 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 	// SHANE: log all timeouts as warnings
 	// if this is a Timed out modlog, then record a warning
 	if action.Prefix == "Timed out" {
+		authorUsername := "Unknown"
+
+		if author != nil {
+			authorUsername = author.Username + "#" + author.Discriminator
+		}
+
 		warning := &WarningModel{
 			GuildID:               guildID,
 			UserID:                discordgo.StrID(target.ID),
 			AuthorID:              discordgo.StrID(author.ID),
-			AuthorUsernameDiscrim: author.Username + "#" + author.Discriminator,
+			AuthorUsernameDiscrim: authorUsername,
 
 			Message: reason,
 		}

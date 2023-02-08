@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
 	"net/http"
+	"sort"
 	"strings"
 	"time"
+	"math"
 
+	"github.com/botlabs-gg/yagpdb/v2/bot/paginatedmessages"
 	"github.com/botlabs-gg/yagpdb/v2/commands"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dcmd"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
@@ -38,10 +42,19 @@ var Command = &commands.YAGCommand{
 		}
 		from := check.Symbols[strings.ToUpper(data.Args[1].Str())]
 		to := check.Symbols[strings.ToUpper(data.Args[2].Str())]
+		// Checks the max amount of pages by the number of symbols on each page (15)
+		maxPages := int(math.Ceil(float64(len(check.Symbols))/float64(15)))
 		if (to == nil) || (from == nil) {
-			return "Invalid currency code.\nCheck out available codes on: <https://api.exchangerate.host/symbols>", nil
+			_, err = paginatedmessages.CreatePaginatedMessage(
+				data.GuildData.GS.ID, data.ChannelID, 1, maxPages, func(p *paginatedmessages.PaginatedMessage, page int) (*discordgo.MessageEmbed, error) {
+					return errEmbed(check, page)
+				})
+			if err != nil {
+				return nil, err
+			}
+			return nil, nil
 		}
-		output, err := requestAPI(fmt.Sprintf("https://api.exchangerate.host/convert?from=%s&to=%s&amount=%g", from.Code, to.Code, amount))
+		output, err := requestAPI(fmt.Sprintf("https://api.exchangerate.host/convert?from=%s&to=%s&amount=1", from.Code, to.Code))
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +64,7 @@ var Command = &commands.YAGCommand{
 		p := message.NewPrinter(language.English)
 		embed := &discordgo.MessageEmbed{
 			Title:       "💱Currency Exchange Rate",
-			Description: fmt.Sprintf("\n%s **%s** (%s) is %s **%s** (%s).", p.Sprintf("%g", amount), from.Description, output.Query.From, p.Sprintf("%0.2f", output.Result), to.Description, output.Query.To),
+			Description: fmt.Sprintf("\n%s **%s** (%s) is %s **%s** (%s).", p.Sprintf("%g", amount), from.Description, output.Query.From, p.Sprintf("%0.2f", amount*output.Result), to.Description, output.Query.To),
 			Color:       0xAE27FF,
 			Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Based on currency rate 1 : %f", output.Info.Rate)},
 			Timestamp:   time.Now().UTC().Format(time.RFC3339),
@@ -84,6 +97,31 @@ func requestAPI(query string) (*ExchangeAPIResult, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+func errEmbed(check *ExchangeAPIResult, page int) (*discordgo.MessageEmbed, error) {
+	desc := "CODE | Description\n------------------"
+	var exchangeSymbols string = "https://api.exchangerate.host/symbols"
+	codes := make([]string, 0, len(check.Symbols))
+	for k := range check.Symbols {
+		codes = append(codes, k)
+	}
+	sort.Strings(codes)
+	start := (page * 15) - 15
+	end := page * 15
+	for i, c := range codes {
+		if i < end && i >= start {
+			desc = fmt.Sprintf("%s\n%s  | %s", desc, c, check.Symbols[c].Description)
+		}
+	}
+	embed := &discordgo.MessageEmbed{
+		Title:       "Invalid currency code",
+		URL:         exchangeSymbols,
+		Color:       0xAE27FF,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Description: fmt.Sprintf("Check out available codes on: %s ```\n%s```", exchangeSymbols, desc),
+	}
+	return embed, nil
 }
 
 type CurrencySymbolInfo struct {

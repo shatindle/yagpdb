@@ -35,6 +35,8 @@ const (
 	MinIntervalTriggerDurationHours   = 1
 	MaxIntervalTriggerDurationHours   = 744
 	MaxIntervalTriggerDurationMinutes = 44640
+
+	dbPageMaxDisplayLength = 64
 )
 
 func KeyCommands(guildID int64) string { return "custom_commands:" + discordgo.StrID(guildID) }
@@ -132,8 +134,9 @@ type CustomCommand struct {
 	Channels        []int64 `json:"channels" schema:"channels"`
 
 	// If set, then one of the following channels are required, otherwise they are ignored
-	RequireRoles bool    `json:"require_roles" schema:"require_roles"`
-	Roles        []int64 `json:"roles" schema:"roles"`
+	RequireRoles  bool    `json:"require_roles" schema:"require_roles"`
+	Roles         []int64 `json:"roles" schema:"roles"`
+	TriggerOnEdit bool    `json:"trigger_on_edit" schema:"trigger_on_edit"`
 
 	GroupID int64
 
@@ -204,8 +207,9 @@ func (cc *CustomCommand) ToDBModel() *models.CustomCommand {
 
 		Responses: cc.Responses,
 
-		ShowErrors: cc.ShowErrors,
-		Disabled:   !cc.IsEnabled,
+		ShowErrors:    cc.ShowErrors,
+		Disabled:      !cc.IsEnabled,
+		TriggerOnEdit: cc.TriggerOnEdit,
 	}
 
 	if cc.TimeTriggerExcludingDays == nil {
@@ -428,4 +432,44 @@ func (p *Plugin) AllFeatureFlags() []string {
 	return []string{
 		featureFlagHasCommands, // set if this server has any custom commands at all
 	}
+}
+
+func getDatabaseEntries(ctx context.Context, guildID int64, before, after int64, limit int) (models.TemplatesUserDatabaseSlice, error) {
+	qms := []qm.QueryMod{
+		qm.OrderBy("id desc"),
+		qm.Limit(limit),
+		models.TemplatesUserDatabaseWhere.GuildID.EQ(guildID),
+	}
+
+	if before != 0 {
+		qms = append(qms, models.TemplatesUserDatabaseWhere.ID.LT(before))
+	} else if after != 0 {
+		qms = append(qms, models.TemplatesUserDatabaseWhere.ID.GT(after))
+	}
+
+	entries, err := models.TemplatesUserDatabases(qms...).AllG(ctx)
+	return entries, err
+}
+
+func convertEntries(result models.TemplatesUserDatabaseSlice) []*LightDBEntry {
+	entries := make([]*LightDBEntry, 0, len(result))
+	for _, v := range result {
+		converted, err := ToLightDBEntry(v)
+		if err != nil {
+			logger.WithError(err).Warn("[cc/web] failed converting to light db entry")
+			continue
+		}
+
+		b, err := json.Marshal(converted.Value)
+		if err != nil {
+			logger.WithError(err).Warn("[cc/web] failed converting to light db entry")
+			continue
+		}
+
+		converted.Value = common.CutStringShort(string(b), dbPageMaxDisplayLength)
+
+		entries = append(entries, converted)
+	}
+
+	return entries
 }

@@ -222,7 +222,7 @@ func tmplRunCC(ctx *templates.Context) interface{} {
 			}
 			newCtx.Data["ExecData"] = data
 			newCtx.Data["StackDepth"] = currentStackDepth + 1
-			newCtx.IsExecedByLeaveMessage = ctx.IsExecedByLeaveMessage
+			newCtx.ExecutedFrom = ctx.ExecutedFrom
 
 			go ExecuteCustomCommand(cmd, newCtx)
 			return "", nil
@@ -235,7 +235,7 @@ func tmplRunCC(ctx *templates.Context) interface{} {
 			Member:  ctx.MS,
 			Message: ctx.Msg,
 
-			IsExecedByLeaveMessage: ctx.IsExecedByLeaveMessage,
+			ExecutedFrom: ctx.ExecutedFrom,
 		}
 
 		// embed data using msgpack to include type information
@@ -309,7 +309,7 @@ func tmplScheduleUniqueCC(ctx *templates.Context) interface{} {
 			Message: ctx.Msg,
 			UserKey: stringedKey,
 
-			IsExecedByLeaveMessage: ctx.IsExecedByLeaveMessage,
+			ExecutedFrom: ctx.ExecutedFrom,
 		}
 
 		// embed data using msgpack to include type information
@@ -506,7 +506,9 @@ func tmplDBGetPattern(ctx *templates.Context, inverse bool) interface{} {
 
 		amount := int(templates.ToInt64(iAmount))
 		skip := int(templates.ToInt64(iSkip))
-		if amount > 100 {
+		// LIMIT 0 essentially means LIMIT ALL, or no limit at all.
+		// Make sure we actually cap it at the max documented limit.
+		if amount > 100 || amount <= 0 {
 			amount = 100
 		}
 
@@ -569,6 +571,12 @@ func tmplDBDelMultiple(ctx *templates.Context) interface{} {
 		if amount > 100 {
 			amount = 100
 		}
+		// LIMIT 0 essentially means LIMIT ALL, or no limit at all.
+		// Make sure we actually cap it at the max documented limit.
+		if amount == 0 {
+			amount = 100
+		}
+
 		skip := int(templates.ToInt64(iSkip))
 		orderby := "value_num DESC, id DESC"
 		if q.Reverse {
@@ -743,7 +751,9 @@ func tmplDBTopEntries(ctx *templates.Context, bottom bool) interface{} {
 
 		amount := int(templates.ToInt64(iAmount))
 		skip := int(templates.ToInt64(iSkip))
-		if amount > 100 {
+		// LIMIT 0 essentially means LIMIT ALL, or no limit at all.
+		// Make sure we actually cap it at the max documented limit.
+		if amount > 100 || amount <= 0 {
 			amount = 100
 		}
 
@@ -831,6 +841,8 @@ type LightDBEntry struct {
 	Key   string
 	Value interface{}
 
+	ValueSize int
+
 	User discordgo.User
 
 	ExpiresAt time.Time
@@ -859,6 +871,8 @@ func ToLightDBEntry(m *models.TemplatesUserDatabase) (*LightDBEntry, error) {
 
 		Key:   m.Key,
 		Value: decodedValue,
+
+		ValueSize: len(m.ValueRaw),
 
 		ExpiresAt: m.ExpiresAt.Time,
 	}

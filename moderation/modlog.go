@@ -1,12 +1,17 @@
 package moderation
 
 import (
+	"context" // SHANE ADDED
+	"database/sql" // SHANE ADDED
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/botlabs-gg/yagpdb/v2/common"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
+	"github.com/botlabs-gg/yagpdb/v2/moderation/models" // SHANE ADDED
+	"github.com/volatiletech/sqlboiler/v4/boil" // SHANE ADDED
+	"github.com/volatiletech/sqlboiler/v4/queries/qm" // SHANE ADDED
 )
 
 type ModlogAction struct {
@@ -99,7 +104,7 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 			timeoutReason = timeoutReason + ": " + reason
 		}
 
-		warning := &WarningModel{
+		warning := &models.ModerationWarning{
 			GuildID:               guildID,
 			UserID:                discordgo.StrID(target.ID),
 			AuthorID:              discordgo.StrID(author.ID),
@@ -109,7 +114,11 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 		}
 
 		// Create the entry in the database
-		err := common.GORM.Create(warning).Error
+		// err := common.GORM.Create(warning).Error
+		// if err != nil {
+		// 	return common.ErrWithCaller(err)
+		// }
+		err = warning.InsertG(context.Background(), boil.Infer())
 		if err != nil {
 			return common.ErrWithCaller(err)
 		}

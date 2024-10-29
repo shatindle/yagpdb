@@ -2,7 +2,6 @@ package moderation
 
 import (
 	"context" // SHANE ADDED
-	"database/sql" // SHANE ADDED
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/moderation/models" // SHANE ADDED
 	"github.com/volatiletech/sqlboiler/v4/boil" // SHANE ADDED
-	"github.com/volatiletech/sqlboiler/v4/queries/qm" // SHANE ADDED
 )
 
 type ModlogAction struct {

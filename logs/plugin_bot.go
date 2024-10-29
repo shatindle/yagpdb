@@ -106,9 +106,11 @@ var cmdWhois = &commands.YAGCommand{
 			return nil, err
 		}
 
+		var nick, joinedAtStr, joinedAtDurStr string
+
 		var member *dstate.MemberState
 		if parsed.Args[0].Value != nil {
-			member = parsed.Args[0].Value.(*dstate.MemberState)
+			member, _ = parsed.Args[0].Value.(*dstate.MemberState)
 		} else {
 			member = parsed.GuildData.MS
 			if sm := bot.State.GetMember(parsed.GuildData.GS.ID, member.User.ID); sm != nil {
@@ -117,7 +119,51 @@ var cmdWhois = &commands.YAGCommand{
 			}
 		}
 
-		var nick, joinedAtStr, joinedAtDurStr string
+		if member == nil {
+			partialmember := parsed.Args[0].Value.(dstate.MemberState)
+
+			t := bot.SnowflakeToTime(partialmember.User.ID)
+			createdDurStr := common.HumanizeDuration(common.DurationPrecisionHours, time.Since(t))
+			if createdDurStr == "" {
+				createdDurStr = "Less than an hour ago"
+			}
+
+			embed := &discordgo.MessageEmbed{
+				Title: fmt.Sprintf("%s#%s", partialmember.User.Username, partialmember.User.Discriminator),
+				Fields: []*discordgo.MessageEmbedField{
+					{
+						Name:   "ID",
+						Value:  discordgo.StrID(partialmember.User.ID),
+						Inline: true,
+					},
+					{
+						Name:   "Avatar",
+						Value:  "[Link](" + discordgo.EndpointUserAvatar(partialmember.User.ID, partialmember.User.Avatar) + ")",
+						Inline: true,
+					},
+					{
+						Name:   "Account Created",
+						Value:  t.UTC().Format(time.RFC822),
+						Inline: true,
+					},
+					{
+						Name:   "Account Age",
+						Value:  createdDurStr,
+						Inline: true,
+					},
+					{
+						Name:   "Status",
+						Value:  "NOT ON SERVER",
+						Inline: true,
+					},
+				},
+				Thumbnail: &discordgo.MessageEmbedThumbnail{
+					URL: discordgo.EndpointUserAvatar(partialmember.User.ID, partialmember.User.Avatar),
+				},
+			}
+
+			return embed, nil
+		}
 
 		if member.Member == nil {
 			joinedAtStr = "Couldn't find out"

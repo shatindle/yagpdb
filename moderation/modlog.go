@@ -42,6 +42,7 @@ var (
 
 func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogAction, target *discordgo.User, reason, logLink string) error {
 	channelID := config.ActionChannel
+	guildID := config.GuildID // SHANE: capture this variable
 	if channelID == 0 {
 		return nil
 	}
@@ -83,13 +84,46 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 		}
 	}
 
+	// SHANE: log all timeouts as warnings
+	// if this is a Timed out modlog, then record a warning
+	if action.Prefix == "Timed out" {
+		authorUsername := "Unknown"
+
+		if author != nil {
+			authorUsername = author.Username + "#" + author.Discriminator
+		}
+
+		timeoutReason := "**USER TIMED OUT**"
+
+		if reason != "" {
+			timeoutReason = timeoutReason + ": " + reason
+		}
+
+		warning := &WarningModel{
+			GuildID:               guildID,
+			UserID:                discordgo.StrID(target.ID),
+			AuthorID:              discordgo.StrID(author.ID),
+			AuthorUsernameDiscrim: authorUsername,
+
+			Message: timeoutReason,
+		}
+
+		// Create the entry in the database
+		err := common.GORM.Create(warning).Error
+		if err != nil {
+			return common.ErrWithCaller(err)
+		}
+	}
+	// SHANE: end of edits
+
 	m, err := common.BotSession.ChannelMessageSendEmbed(channelID, embed)
 	if err != nil {
 		logger.WithError(err).Errorf("Creating modlog embed for guild_id %d, action_channel %d", config.GuildID, config.ActionChannel)
 		if common.IsDiscordErr(err, discordgo.ErrCodeMissingAccess, discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeUnknownChannel) {
 			// disable the modlog
 			config.ActionChannel = 0
-			SaveConfig(config)
+			//config.Save(guildID) // SHANE: use the captured variable
+			SaveConfig(config) // SHANE: TODO: determine if we need this...
 			return nil
 		}
 		return err

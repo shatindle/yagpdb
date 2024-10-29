@@ -118,7 +118,7 @@ func CreateModlogEmbed(config *Config, author *discordgo.User, action ModlogActi
 		// if err != nil {
 		// 	return common.ErrWithCaller(err)
 		// }
-		err = warning.InsertG(context.Background(), boil.Infer())
+		err := warning.InsertG(context.Background(), boil.Infer())
 		if err != nil {
 			return common.ErrWithCaller(err)
 		}

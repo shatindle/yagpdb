@@ -161,7 +161,12 @@ type Message struct {
 	// be checked by performing a bitwise AND between this int and the flag.
 	Flags MessageFlags `json:"flags"`
 
+	// A mesage activity object, sent with Rich Presence-related chat embeds.
 	Activity *MessageActivity `json:"activity"`
+
+	// An array of StickerItem objects, is the message contains any.
+	StickerItems  []*StickerItem `json:"sticker_items"`
+	ApplicationID int64          `json:"application_id,string"`
 }
 
 type MessageSnapshot struct {
@@ -176,6 +181,16 @@ func (m *Message) GetMessageContents() []string {
 		}
 	}
 	return contents
+}
+
+func (m *Message) GetMessageAttachments() []*MessageAttachment {
+	attachments := m.Attachments
+	for _, s := range m.MessageSnapshots {
+		if s.Message != nil && len(s.Message.Attachments) > 0 {
+			attachments = append(attachments, s.Message.Attachments...)
+		}
+	}
+	return attachments
 }
 
 func (m *Message) GetGuildID() int64 {
@@ -256,6 +271,7 @@ type MessageSend struct {
 	AllowedMentions AllowedMentions    `json:"allowed_mentions,omitempty"`
 	Reference       *MessageReference  `json:"message_reference,omitempty"`
 	Flags           MessageFlags       `json:"flags,omitempty"`
+	StickerIDs      []int64            `json:"sticker_ids"`
 
 	// TODO: Remove this when compatibility is not required.
 	File *File `json:"-"`

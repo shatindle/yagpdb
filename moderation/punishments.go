@@ -52,7 +52,7 @@ func getMemberWithFallback(gs *dstate.GuildSet, user *discordgo.User) (ms *dstat
 	return ms, false
 }
 
-// Kick or bans someone, uploading a hasebin log, and sending the report message in the action channel
+// Kicks, bans, or times someone out, uploading a hasebin log, and sending the report message in the action channel
 func punish(config *Config, p Punishment, guildID int64, channel *dstate.ChannelState, message *discordgo.Message, author *discordgo.User, reason string, user *discordgo.User, duration time.Duration, executedFromCommandTemplate bool, variadicBanDeleteDays ...int) error {
 
 	config, err := BotCachedGetConfigIfNotSet(guildID, config)
@@ -62,22 +62,35 @@ func punish(config *Config, p Punishment, guildID int64, channel *dstate.Channel
 
 	var action ModlogAction
 	var msg string
+	var requiredPerms int64
+	var actionPresentTense string
 	switch p {
 	case PunishmentKick:
 		action = MAKick
 		msg = config.KickMessage
+		requiredPerms = discordgo.PermissionKickMembers
+		actionPresentTense = "kick"
 	case PunishmentBan:
 		action = MABanned
 		msg = config.BanMessage
 		if duration > 0 {
 			action.Footer = "Expires after: " + common.HumanizeDuration(common.DurationPrecisionMinutes, duration)
 		}
+		requiredPerms = discordgo.PermissionBanMembers
+		actionPresentTense = "ban"
 	case PunishmentTimeout:
 		action = MATimeoutAdded
 		msg = config.TimeoutMessage
 		if duration > 0 {
 			action.Footer = "Expires after: " + common.HumanizeDuration(common.DurationPrecisionMinutes, duration)
 		}
+
+		if duration < MinTimeOutDuration || duration > MaxTimeOutDuration {
+			return errors.New(fmt.Sprintf("timeout duration should be between %s and %s minutes", MinTimeOutDuration, MaxTimeOutDuration))
+		}
+
+		requiredPerms = discordgo.PermissionModerateMembers
+		actionPresentTense = "timeout"
 	default:
 		return errors.New("invalid punishment type")
 	}
@@ -88,9 +101,27 @@ func punish(config *Config, p Punishment, guildID int64, channel *dstate.Channel
 	}
 
 	gs := bot.State.GetGuild(guildID)
+
+	hasPerms, err := bot.BotHasPermissionGS(gs, channelID, requiredPerms)
+	if err != nil {
+		return errors.New("error checking if bot has required perms to moderate a member")
+	}
+	if !hasPerms {
+		return errors.New("The bot is missing permission to " + actionPresentTense + "members")
+	}
+
 	member, memberNotFound := getMemberWithFallback(gs, user)
 	if !memberNotFound {
-		sendPunishDM(config, msg, action, gs, channel, message, author, member, duration, reason, -1, executedFromCommandTemplate)
+		// final bot hierarchy check
+		botMember, err := bot.GetMember(guildID, common.BotUser.ID)
+		if err != nil {
+			return errors.New("failed fetching bot member to check hierarchy")
+		}
+		if above := bot.IsMemberAbove(gs, botMember, member); !above {
+			return errors.New("cannot " + actionPresentTense + " a member who is ranked higher than the bot")
+		}
+
+		go sendPunishDM(config, msg, action, gs, channel, message, author, member, duration, reason, -1, executedFromCommandTemplate)
 	}
 
 	logLink := ""
@@ -113,9 +144,6 @@ func punish(config *Config, p Punishment, guildID int64, channel *dstate.Channel
 		}
 		err = common.BotSession.GuildBanCreateWithReason(guildID, user.ID, fullReason, banDeleteDays)
 	case PunishmentTimeout:
-		if duration < MinTimeOutDuration || duration > MaxTimeOutDuration {
-			return errors.New(fmt.Sprintf("timeout duration should be between %s and %s minutes", MinTimeOutDuration, MaxTimeOutDuration))
-		}
 		expireTime := time.Now().Add(duration)
 		err = common.BotSession.GuildMemberTimeoutWithReason(guildID, user.ID, &expireTime, fullReason)
 	}
@@ -412,6 +440,17 @@ const (
 	ErrNoMuteRole = errors.Sentinel("No mute role")
 )
 
+func IsMuted(guildID, userID int64) bool {
+	mute, err := models.MutedUsers(
+		models.MutedUserWhere.UserID.EQ(userID),
+		models.MutedUserWhere.GuildID.EQ(guildID),
+	).OneG(context.Background())
+	if err != nil {
+		return false // assume not muted
+	}
+	return mute.ExpiresAt.IsZero() || mute.ExpiresAt.Time.After(time.Now())
+}
+
 // Unmut or mute a user, ignore duration if unmuting
 // TODO: i don't think we need to track mutes in its own database anymore now with the new scheduled event system
 func MuteUnmuteUser(config *Config, mute bool, guildID int64, channel *dstate.ChannelState, message *discordgo.Message, author *discordgo.User, reason string, member *dstate.MemberState, duration int, executedByCommandTemplate bool) error {
@@ -652,10 +691,8 @@ func WarnUser(config *Config, guildID int64, channel *dstate.ChannelState, msg *
 	gs := bot.State.GetGuild(guildID)
 	ms, _ := bot.GetMember(guildID, target.ID)
 	if gs != nil && ms != nil {
-		sendPunishDM(config, config.WarnMessage, MAWarned, gs, channel, msg, author, ms, -1, message, int(warning.ID), executedByCommandTemplate)
+		go sendPunishDM(config, config.WarnMessage, MAWarned, gs, channel, msg, author, ms, -1, message, int(warning.ID), executedByCommandTemplate)
 	}
-
-	// go bot.SendDM(target.ID, fmt.Sprintf("**%s**: You have been warned for: %s", bot.GuildName(guildID), message))
 
 	if config.WarnSendToModlog && config.ActionChannel != 0 {
 		err = CreateModlogEmbed(config, author, MAWarned, target, message, warning.LogsLink.String)

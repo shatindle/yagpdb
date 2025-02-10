@@ -167,11 +167,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "ddays", Help: "Number of days of messages to delete", Type: dcmd.Int},
 		},
 		RequiredDiscordPermsHelp: "BanMembers or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionBanMembers}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionBanMembers}},
 		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -227,10 +227,10 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "BanMembers or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionBanMembers}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionBanMembers}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, _, err := MBaseCmd(parsed, 0) //No need to check member role hierarchy as banned members should not be in server
 			if err != nil {
@@ -279,9 +279,9 @@ var ModerationCommands = []*commands.YAGCommand{
 		ArgSwitches: []*dcmd.ArgDef{
 			{Name: "cl", Help: "Messages to delete", Type: &dcmd.IntArg{Min: 1, Max: 100}},
 		},
-		RequireBotPerms:     [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionKickMembers}},
+		RequireBotPerms:     [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionKickMembers}},
 		SlashCommandEnabled: true,
-		IsResponseEphemeral: true,
+		IsResponseEphemeral: false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -341,11 +341,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "KickMembers or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionManageRoles}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageRoles}},
 		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -381,6 +381,11 @@ var ModerationCommands = []*commands.YAGCommand{
 				return "Member not found", err
 			}
 
+			err = checkHierarchy(parsed, target.ID)
+			if err != nil {
+				return nil, err
+			}
+
 			var msg *discordgo.Message
 			if parsed.TraditionalTriggerData != nil {
 				msg = parsed.TraditionalTriggerData.Message
@@ -405,10 +410,10 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "KickMembers or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionManageRoles}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageRoles}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -432,6 +437,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			member, err := bot.GetMember(parsed.GuildData.GS.ID, target.ID)
 			if err != nil || member == nil {
 				return "Member not found", err
+			}
+
+			err = checkHierarchy(parsed, target.ID)
+			if err != nil {
+				return nil, err
 			}
 
 			var msg *discordgo.Message
@@ -458,11 +468,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "TimeoutMembers/ModerateMembers or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionModerateMembers}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionModerateMembers}},
 		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -493,6 +503,11 @@ var ModerationCommands = []*commands.YAGCommand{
 				return "Member not found", err
 			}
 
+			err = checkHierarchy(parsed, target.ID)
+			if err != nil {
+				return nil, err
+			}
+
 			var msg *discordgo.Message
 			if parsed.TraditionalTriggerData != nil {
 				msg = parsed.TraditionalTriggerData.Message
@@ -516,10 +531,10 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "TimeoutMember/ModerateMember or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionModerateMembers}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionModerateMembers}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {
@@ -535,6 +550,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			member, err := bot.GetMember(parsed.GuildData.GS.ID, target.ID)
 			if err != nil || member == nil {
 				return "Member not found", err
+			}
+
+			err = checkHierarchy(parsed, target.ID)
+			if err != nil {
+				return nil, err
 			}
 
 			memberTimeout := member.Member.CommunicationDisabledUntil
@@ -633,7 +653,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		CmdCategory:     commands.CategoryModeration,
 		Name:            "Clean",
 		Description:     "Delete the last number of messages from chat, optionally filtering by user, max age and regex or ignoring pinned messages.",
-		LongDescription: "Specify a regex with \"-r regex_here\" and max age with \"-ma 1h10m\"\nYou can invert the regex match (i.e. only clear messages that do not match the given regex) by supplying the `-im` flag\nNote: Will only look in the last 1k messages",
+		LongDescription: "Specify a regex with \"-r regex_here\" and max age with \"-ma 1h10m\"\nYou can invert the regex match (i.e. only clear messages that do not match the given regex) by supplying the `-im` flag\nNote: Will only look in the last 1k messages, and none > 2 weeks old.",
 		Aliases:         []string{"clear", "cl"},
 		RequiredArgs:    1,
 		Arguments: []*dcmd.ArgDef{
@@ -652,11 +672,11 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "from", Help: "Start at this msg ID", Type: dcmd.BigInt},
 		},
 		RequiredDiscordPermsHelp: "ManageMessages or ManageGuild",
-		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageGuild}, {discordgo.PermissionManageMessages}},
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageMessages}},
 		ArgumentCombos:           [][]int{{0}, {0, 1}, {1, 0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, _, err := MBaseCmd(parsed, 0)
 			if err != nil {
@@ -842,7 +862,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		RequiredDiscordPermsHelp: "ManageMessages or ManageGuild",
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
-		IsResponseEphemeral:      true,
+		IsResponseEphemeral:      false,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			if parsed.Context().Value(commands.CtxKeyExecutedByNestedCommandTemplate) == true {
 				return nil, errors.New("cannot nest exec/execAdmin calls")
@@ -955,7 +975,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		Description:   "Edit a warning, id is the first number of each warning from the warnings command",
 		RequiredArgs:  2,
 		Arguments: []*dcmd.ArgDef{
-			{Name: "Id", Type: dcmd.Int},
+			{Name: "WarningId", Type: dcmd.Int},
 			{Name: "NewMessage", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "ManageMessages or ManageGuild",
@@ -997,7 +1017,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		Description:   "Deletes a warning, id is the first number of each warning from the warnings command",
 		RequiredArgs:  1,
 		Arguments: []*dcmd.ArgDef{
-			{Name: "Id", Type: dcmd.Int},
+			{Name: "WarningId", Type: dcmd.Int},
 			{Name: "Reason", Type: dcmd.String},
 		},
 		RequiredDiscordPermsHelp: "ManageMessages or ManageGuild",
@@ -1009,22 +1029,46 @@ var ModerationCommands = []*commands.YAGCommand{
 				return nil, err
 			}
 
-			_, err = MBaseCmdSecond(parsed, "", true, discordgo.PermissionManageMessages, config.WarnCmdRoles, config.WarnCommandsEnabled, true)
+			warningID := parsed.Args[0].Int()
+
+			reason := SafeArgString(parsed, 1)
+			reason, err = MBaseCmdSecond(parsed, reason, true, discordgo.PermissionManageMessages, config.WarnCmdRoles, config.WarnCommandsEnabled, true)
 			if err != nil {
 				return nil, err
 			}
 
-			warningID := parsed.Args[0].Int()
-			numDeleted, err := models.ModerationWarnings(
+			warning, err := models.ModerationWarnings(
 				models.ModerationWarningWhere.ID.EQ(warningID),
-				// don't delete warnings from other servers, even if ID is correct
+				// don't get warning from other servers, even if ID is correct
 				models.ModerationWarningWhere.GuildID.EQ(parsed.GuildData.GS.ID),
-			).DeleteAllG(parsed.Context())
+			).OneG(parsed.Context())
+			if err != nil {
+				return fmt.Sprintf("Could not find warning with ID `%d`", warningID), nil
+			}
+
+			numDeleted, err := warning.DeleteG(parsed.Context())
 			if err != nil {
 				return "Failed deleting warning", err
 			}
 			if numDeleted == 0 {
 				return fmt.Sprintf("Could not find warning with ID `%d`", warningID), nil
+			}
+
+			if config.DelwarnSendToModlog && config.ActionChannel != 0 {
+				userid, err := strconv.ParseInt(warning.UserID, 10, 64)
+				if err != nil {
+					return "Failed parsing user ID, warning deleted", err
+				}
+				user := bot.GetUsers(parsed.GuildData.GS.ID, userid)[0]
+
+				if config.DelwarnIncludeWarnReason {
+					reason = fmt.Sprintf("%s\n~~%s~~", reason, warning.Message)
+				}
+				
+				err = CreateModlogEmbed(config, parsed.Author, MADelwarn, user, reason, "")
+				if err != nil {
+					return "Failed sending modlog, warning deleted", err
+				}
 			}
 
 			return "👌", nil
@@ -1085,6 +1129,7 @@ var ModerationCommands = []*commands.YAGCommand{
 			{Name: "id", Help: "List userIDs"},
 		},
 		RequiredDiscordPermsHelp: "ManageMessages or ManageGuild",
+		RequireDiscordPerms:      []int64{discordgo.PermissionManageMessages, discordgo.PermissionManageGuild},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
 		RunFunc: paginatedmessages.PaginatedCommand(0, func(parsed *dcmd.Data, p *paginatedmessages.PaginatedMessage, page int) (*discordgo.MessageEmbed, error) {
@@ -1363,7 +1408,7 @@ func (f *IgnorePinnedMessagesFilter) Matches(msg *dstate.MessageState) (delete b
 type MessagesWithAttachmentsFilter struct{}
 
 func (*MessagesWithAttachmentsFilter) Matches(msg *dstate.MessageState) (delete bool) {
-	return len(msg.Attachments) > 0
+	return len(msg.GetMessageAttachments()) > 0
 }
 
 // Only delete messages satisfying ToID<=id<=FromID.

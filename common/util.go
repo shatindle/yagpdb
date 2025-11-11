@@ -26,7 +26,7 @@ import (
 func KeyGuild(guildID int64) string         { return "guild:" + discordgo.StrID(guildID) }
 func KeyGuildChannels(guildID int64) string { return "channels:" + discordgo.StrID(guildID) }
 
-var LinkRegex = regexp.MustCompile(`(?i)([a-z\d]+://)([\w-._~:/?#\[\]@!$&'()*+,;%=]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])`)
+var LinkRegex = regexp.MustCompile(`(?i)([a-z\d]+:[//])([\w-._~:/?#\[\]@!$&'()*+,;%=]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])`)
 var DomainFinderRegex = regexp.MustCompile(`(?i)(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z\d][a-z\d-]{0,61}[a-z\d]`)
 var UGCHtmlPolicy = bluemonday.NewPolicy().AllowElements("h1", "h2", "h3", "h4", "h5", "h6", "p", "ol", "ul", "li", "dl", "dd", "dt", "blockquote", "table", "thead", "th", "tr", "td", "tbody", "del", "i", "b")
 var ForwardSlashReplacer = strings.NewReplacer("\\", "")
@@ -296,21 +296,22 @@ func RemoveRoleDS(ms *dstate.MemberState, role int64) error {
 }
 
 var StringPerms = map[int64]string{
-	discordgo.PermissionViewChannel:        "View Channel",
-	discordgo.PermissionSendMessages:       "Send Messages",
-	discordgo.PermissionSendTTSMessages:    "Send TTS Messages",
-	discordgo.PermissionManageMessages:     "Manage Messages",
-	discordgo.PermissionEmbedLinks:         "Embed Links",
-	discordgo.PermissionAttachFiles:        "Attach Files",
-	discordgo.PermissionReadMessageHistory: "Read Message History",
-	discordgo.PermissionMentionEveryone:    "Mention Everyone",
-	discordgo.PermissionVoiceConnect:       "Voice Connect",
-	discordgo.PermissionVoiceSpeak:         "Voice Speak",
-	discordgo.PermissionVoiceMuteMembers:   "Voice Mute Members",
-	discordgo.PermissionVoiceDeafenMembers: "Voice Deafen Members",
-	discordgo.PermissionVoiceMoveMembers:   "Voice Move Members",
-	discordgo.PermissionVoiceUseVAD:        "Voice Use VAD",
-
+	discordgo.PermissionViewChannel:         "View Channel",
+	discordgo.PermissionSendMessages:        "Send Messages",
+	discordgo.PermissionSendTTSMessages:     "Send TTS Messages",
+	discordgo.PermissionManageMessages:      "Manage Messages",
+	discordgo.PermissionEmbedLinks:          "Embed Links",
+	discordgo.PermissionAttachFiles:         "Attach Files",
+	discordgo.PermissionReadMessageHistory:  "Read Message History",
+	discordgo.PermissionMentionEveryone:     "Mention Everyone",
+	discordgo.PermissionVoiceConnect:        "Voice Connect",
+	discordgo.PermissionVoiceSpeak:          "Voice Speak",
+	discordgo.PermissionVoiceMuteMembers:    "Voice Mute Members",
+	discordgo.PermissionVoiceDeafenMembers:  "Voice Deafen Members",
+	discordgo.PermissionVoiceMoveMembers:    "Voice Move Members",
+	discordgo.PermissionVoiceUseVAD:         "Voice Use VAD",
+	discordgo.PermissionChangeNickname:      "Change Nickname",
+	discordgo.PermissionManageNicknames:     "Manage Nicknames",
 	discordgo.PermissionCreateInstantInvite: "Create Instant Invite",
 	discordgo.PermissionKickMembers:         "Kick Members",
 	discordgo.PermissionBanMembers:          "Ban Members",

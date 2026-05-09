@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
+	"slices"
 	"time"
 
 	"emperror.dev/errors"
@@ -197,8 +199,15 @@ func tmplRunCC(ctx *templates.Context) interface{} {
 			return "", errors.New("custom command is disabled")
 		}
 
-		if cmd.TriggerType == int(CommandTriggerInterval) || cmd.TriggerType == int(CommandTriggerCron) {
-			return "", errors.New("interval and cron type custom commands cannot be used with execCC")
+		disallowedTriggerTypes := []CommandTriggerType{
+			CommandTriggerInterval,
+			CommandTriggerCron,
+			CommandTriggerRole,
+		}
+
+		triggerType := CommandTriggerType(cmd.TriggerType)
+		if slices.Contains(disallowedTriggerTypes, triggerType) {
+			return "", fmt.Errorf("custom commands of type %s cannot be used with execCC", triggerStrings[triggerType])
 		}
 
 		channelID := ctx.ChannelArg(channel)
@@ -244,8 +253,9 @@ func tmplRunCC(ctx *templates.Context) interface{} {
 			ChannelID: channelID,
 			CmdID:     cmd.LocalID,
 
-			Member:  ctx.MS,
-			Message: ctx.Msg,
+			Member:       ctx.MS,
+			Message:      ctx.Msg,
+			CurrentFrame: ctx.CurrentFrame,
 
 			ExecutedFrom: ctx.ExecutedFrom,
 		}
@@ -296,8 +306,15 @@ func tmplScheduleUniqueCC(ctx *templates.Context) interface{} {
 			return "", errors.New("custom command is disabled")
 		}
 
-		if cmd.TriggerType == int(CommandTriggerInterval) || cmd.TriggerType == int(CommandTriggerCron) {
-			return "", errors.New("interval and cron type custom commands cannot be used with scheduleUniqueCC")
+		disallowedTriggerTypes := []CommandTriggerType{
+			CommandTriggerInterval,
+			CommandTriggerCron,
+			CommandTriggerRole,
+		}
+
+		triggerType := CommandTriggerType(cmd.TriggerType)
+		if slices.Contains(disallowedTriggerTypes, triggerType) {
+			return "", fmt.Errorf("custom commands of type %s cannot be used with scheduleUniqueCC", triggerStrings[triggerType])
 		}
 
 		channelID := ctx.ChannelArg(channel)
@@ -321,9 +338,10 @@ func tmplScheduleUniqueCC(ctx *templates.Context) interface{} {
 			ChannelID: channelID,
 			CmdID:     cmd.LocalID,
 
-			Member:  ctx.MS,
-			Message: ctx.Msg,
-			UserKey: stringedKey,
+			Member:       ctx.MS,
+			Message:      ctx.Msg,
+			UserKey:      stringedKey,
+			CurrentFrame: ctx.CurrentFrame,
 
 			ExecutedFrom: ctx.ExecutedFrom,
 		}
@@ -867,7 +885,17 @@ type LightDBEntry struct {
 func ToLightDBEntry(m *models.TemplatesUserDatabase) (*LightDBEntry, error) {
 	var dst interface{}
 	dec := newDecoder(bytes.NewBuffer(m.ValueRaw))
-	err := dec.Decode(&dst)
+
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = errors.New(fmt.Sprint("panic decoding db entry: ", r))
+			}
+		}()
+		err = dec.Decode(&dst)
+	}()
+
 	if err != nil {
 		return nil, err
 	}
@@ -910,7 +938,7 @@ func newDecoder(buf *bytes.Buffer) *msgpack.Decoder {
 		mi := make(map[interface{}]interface{}, n)
 		ms := make(map[string]interface{})
 
-		for i := 0; i < n; i++ {
+		for range n {
 			mk, err := d.DecodeInterface()
 			if err != nil {
 				return nil, err
@@ -938,6 +966,7 @@ func newDecoder(buf *bytes.Buffer) *msgpack.Decoder {
 				mi[mk] = mv
 			}
 		}
+
 		if isStringKeysOnly {
 			return ms, nil
 		}
@@ -964,7 +993,12 @@ func tmplResultSetToLightDBEntries(ctx *templates.Context, gs *dstate.GuildSet, 
 	// fill in user fields
 	membersToFetch := make([]int64, 0, len(entries))
 	for _, v := range entries {
-		if common.ContainsInt64Slice(membersToFetch, v.UserID) {
+		if slices.Contains(membersToFetch, v.UserID) {
+			continue
+		}
+		//don't check invalid snowflakes
+		idLen := len(fmt.Sprintf("%d", v.UserID))
+		if idLen < 16 {
 			continue
 		}
 
@@ -975,7 +1009,7 @@ func tmplResultSetToLightDBEntries(ctx *templates.Context, gs *dstate.GuildSet, 
 	if len(membersToFetch) == 1 {
 		member, err := bot.GetMember(gs.ID, membersToFetch[0])
 		if err != nil {
-			ctx.LogEntry().WithError(err).Error("[cc] failed retrieving member")
+			ctx.LogEntry().WithError(err).Errorf("[cc] failed retrieving member %d", membersToFetch[0])
 			return entries
 		}
 

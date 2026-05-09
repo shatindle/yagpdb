@@ -189,6 +189,7 @@ func RefreshMuteOverrides(guildID int64, createRole bool) {
 
 	for _, v := range guild.Channels {
 		RefreshMuteOverrideForChannel(config, v)
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -252,7 +253,7 @@ func HandleChannelCreateUpdate(evt *eventsystem.EventData) (retry bool, err erro
 
 func RefreshMuteOverrideForChannel(config *Config, channel dstate.ChannelState) {
 	// Ignore the channel
-	if common.ContainsInt64Slice(config.MuteIgnoreChannels, channel.ID) {
+	if slices.Contains(config.MuteIgnoreChannels, channel.ID) {
 		return
 	}
 

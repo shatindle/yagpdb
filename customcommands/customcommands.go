@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -76,6 +77,7 @@ const (
 	CommandTriggerComponent  CommandTriggerType = 7
 	CommandTriggerModal      CommandTriggerType = 8
 	CommandTriggerCron       CommandTriggerType = 9
+	CommandTriggerRole       CommandTriggerType = 11
 )
 
 var (
@@ -91,6 +93,7 @@ var (
 		CommandTriggerComponent,
 		CommandTriggerModal,
 		CommandTriggerCron,
+		CommandTriggerRole,
 	}
 
 	triggerStrings = map[CommandTriggerType]string{
@@ -105,6 +108,7 @@ var (
 		CommandTriggerComponent:  "Component",
 		CommandTriggerModal:      "Modal",
 		CommandTriggerCron:       "Crontab",
+		CommandTriggerRole:       "Role",
 	}
 )
 
@@ -119,6 +123,12 @@ const (
 	InteractionDeferModeMessage
 	InteractionDeferModeEphemeral
 	InteractionDeferModeUpdate
+)
+
+const (
+	RoleTriggerModeBoth = iota
+	RoleTriggerModeAdd
+	RoleTriggerModeRemove
 )
 
 func (t CommandTriggerType) String() string {
@@ -138,6 +148,8 @@ type CustomCommand struct {
 	PublicID        string             `json:"public_id" schema:"public_id"`
 
 	ContextChannel        int64 `schema:"context_channel" valid:"channel,true"`
+	TimeContextChannel    int64 `schema:"time_context_channel" valid:"channel,true"`
+	RoleContextChannel    int64 `schema:"role_context_channel" valid:"channel,true"`
 	RedirectErrorsChannel int64 `schema:"redirect_errors_channel" valid:"channel,true"`
 
 	TimeTriggerInterval       int     `schema:"time_trigger_interval"`
@@ -146,6 +158,8 @@ type CustomCommand struct {
 
 	ReactionTriggerMode  int `schema:"reaction_trigger_mode"`
 	InteractionDeferMode int `schema:"interaction_defer_mode"`
+
+	RoleTriggerMode int `schema:"role_trigger_mode"`
 
 	// If set, then the following channels are required, otherwise they are ignored
 	RequireChannels bool    `json:"require_channels" schema:"require_channels"`
@@ -223,7 +237,15 @@ func (cc *CustomCommand) Validate(tmpl web.TemplateData, guild_id int64) (ok boo
 		}
 	}
 
+	if cc.TriggerTypeForm == "role_trigger" {
+		if cc.RoleTriggerMode < 0 || cc.RoleTriggerMode > 2 {
+			tmpl.AddAlerts(web.ErrorAlert("Invalid role trigger mode"))
+			return false
+		}
+	}
+
 	return true
+
 }
 
 func (cc *CustomCommand) ToDBModel() *models.CustomCommand {
@@ -247,6 +269,8 @@ func (cc *CustomCommand) ToDBModel() *models.CustomCommand {
 
 		ReactionTriggerMode:  int16(cc.ReactionTriggerMode),
 		InteractionDeferMode: int16(cc.InteractionDeferMode),
+
+		RoleTriggerMode: int16(cc.RoleTriggerMode),
 
 		Responses: cc.Responses,
 
@@ -283,12 +307,12 @@ func (cc *CustomCommand) ToDBModel() *models.CustomCommand {
 func CmdRunsInChannel(cc *models.CustomCommand, channel int64) bool {
 	if cc.GroupID.Valid {
 		// check group restrictions
-		if common.ContainsInt64Slice(cc.R.Group.IgnoreChannels, channel) {
+		if slices.Contains(cc.R.Group.IgnoreChannels, channel) {
 			return false
 		}
 
 		if len(cc.R.Group.WhitelistChannels) > 0 {
-			if !common.ContainsInt64Slice(cc.R.Group.WhitelistChannels, channel) {
+			if !slices.Contains(cc.R.Group.WhitelistChannels, channel) {
 				return false
 			}
 		}
@@ -324,7 +348,7 @@ func CmdRunsForUser(cc *models.CustomCommand, ms *dstate.MemberState) bool {
 	}
 
 	for _, v := range cc.Roles {
-		if common.ContainsInt64Slice(ms.Member.Roles, v) {
+		if slices.Contains(ms.Member.Roles, v) {
 			return cc.RolesWhitelistMode
 		}
 	}
@@ -353,28 +377,15 @@ func (c CustomCommandSlice) Swap(i, j int) {
 	c[j] = temp
 }
 
-func filterEmptyResponses(s string, ss ...string) []string {
-	result := make([]string, 0, len(ss)+1)
-	if s != "" {
-		result = append(result, s)
-	}
-
-	for _, s := range ss {
-		if s != "" {
-			result = append(result, s)
-		}
-	}
-
-	return result
-}
-
 const (
-	MaxCommands                 = 100
-	MaxCommandsPremium          = 250
-	MaxCCResponsesLength        = 10000
-	MaxCCResponsesLengthPremium = 20000
-	MaxUserMessages             = 20
-	MaxGroups                   = 50
+	MaxCommands                   = 100
+	MaxCommandsPremium            = 250
+	MaxRoleTriggerCommands        = 1
+	MaxRoleTriggerCommandsPremium = 5
+	MaxCCResponsesLength          = 10000
+	MaxCCResponsesLengthPremium   = 20000
+	MaxUserMessages               = 20
+	MaxGroups                     = 50
 )
 
 func MaxCommandsForContext(ctx context.Context) int {
@@ -383,6 +394,14 @@ func MaxCommandsForContext(ctx context.Context) int {
 	}
 
 	return MaxCommands
+}
+
+func MaxRoleTriggerCommandsForContext(ctx context.Context) int {
+	if premium.ContextPremium(ctx) {
+		return MaxRoleTriggerCommandsPremium
+	}
+
+	return MaxRoleTriggerCommands
 }
 
 var _ featureflags.PluginWithFeatureFlags = (*Plugin)(nil)

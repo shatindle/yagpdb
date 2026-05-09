@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -26,13 +28,17 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/web/discorddata"
 	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var (
-	StandardFuncMap = map[string]interface{}{
+	titleCaser = cases.Title(language.Und)
+
+	StandardFuncMap = map[string]any{
 		// conversion functions
 		"str":        ToString,
-		"toString":   ToString, // don't ask why we have 2 of these
+		"toString":   ToString, // don't ask why we have 2 of these, update: the answer is always "deprecated but not removed"
 		"toInt":      tmplToInt,
 		"toInt64":    ToInt64,
 		"toFloat":    ToFloat64,
@@ -47,7 +53,7 @@ var (
 		"lower":        strings.ToLower,
 		"slice":        slice,
 		"split":        strings.Split,
-		"title":        strings.Title,
+		"title":        titleCaser.String,
 		"trimSpace":    strings.TrimSpace,
 		"upper":        strings.ToUpper,
 		"urlescape":    url.PathEscape,
@@ -89,20 +95,33 @@ var (
 		"bitwiseLeftShift":  tmplBitwiseLeftShift,
 		"bitwiseRightShift": tmplBitwiseRightShift,
 
-		// misc
-		"humanizeThousands":  tmplHumanizeThousands,
-		"dict":               Dictionary,
-		"sdict":              StringKeyDictionary,
-		"structToSdict":      StructToSdict,
-		"componentBuilder":   CreateComponentBuilder,
+		// message component builders
+		"componentBuilder": CreateComponentBuilder,
+		"modalBuilder":     CreateModalBuilder,
+		"cbutton":          CreateButton,
+		"cmenu":            CreateSelectMenu,
+		"cmodal":           CreateModal,
+		"clabel":           CreateLabel,
+		"ctextInput":       CreateTextInput,
+		"ctextDisplay":     CreateTextDisplay,
+		"cradioGroup":      CreateRadioGroup,
+		"ccheckboxGroup":   CreateCheckboxGroup,
+		"ccheckbox":        CreateCheckbox,
+
+		// message builders
 		"cembed":             CreateEmbed,
-		"cbutton":            CreateButton,
-		"cmenu":              CreateSelectMenu,
-		"cmodal":             CreateModal,
-		"cslice":             CreateSlice,
-		"complexMessage":     CreateMessageSend,
-		"complexMessageEdit": CreateMessageEdit,
-		"kindOf":             KindOf,
+		"complexMessage":     CreateComplexMessage,
+		"complexMessageEdit": CreateComplexMessage,
+
+		// misc
+		"humanizeThousands": tmplHumanizeThousands,
+		"dict":              Dictionary,
+		"sdict":             StringKeyDictionary,
+		"structToSdict":     StructToSdict,
+
+		"cslice": CreateSlice,
+
+		"kindOf": KindOf,
 
 		"adjective":   common.RandomAdjective,
 		"in":          in,
@@ -144,7 +163,53 @@ func RegisterSetupFunc(f ContextSetupFunc) {
 	contextSetupFuncs = append(contextSetupFuncs, f)
 }
 
+type TemplateCooldowns struct {
+	sync.RWMutex
+	cooldowns map[string]time.Time
+}
+
+func (tc *TemplateCooldowns) Set(key string, duration time.Duration) bool {
+	tc.Lock()
+	defer tc.Unlock()
+	t, ok := tc.cooldowns[key]
+	if !ok || time.Now().After(t) {
+		tc.cooldowns[key] = time.Now().Add(duration)
+		return false
+	}
+	return true
+}
+
+func (tc *TemplateCooldowns) gc(d time.Duration) {
+	ticker := time.NewTicker(d)
+	for range ticker.C {
+		tc.Tick()
+	}
+}
+
+func (tc *TemplateCooldowns) Tick() {
+	tc.Lock()
+	defer tc.Unlock()
+	var deleteCounter int
+	for k, v := range tc.cooldowns {
+		if time.Now().After(v) {
+			delete(tc.cooldowns, k)
+			deleteCounter++
+		}
+	}
+	if deleteCounter > 0 {
+		logger.Infof("deleted %d template cooldowns", deleteCounter)
+	}
+}
+
+var templateCooldownTracker *TemplateCooldowns
+
+func InitCooldownTracker() {
+	templateCooldownTracker = &TemplateCooldowns{cooldowns: make(map[string]time.Time)}
+	go templateCooldownTracker.gc(time.Minute)
+}
+
 func init() {
+	InitCooldownTracker()
 	RegisterSetupFunc(baseContextFuncs)
 	RegisterSetupFunc(interactionContextFuncs)
 
@@ -196,32 +261,51 @@ type Context struct {
 }
 
 type ContextFrame struct {
-	CS *dstate.ChannelState
+	CS *dstate.ChannelState `json:"cs"`
 
-	MentionEveryone bool
-	MentionHere     bool
-	MentionRoles    []int64
+	MentionEveryone bool    `json:"mention_everyone"`
+	MentionHere     bool    `json:"mention_here"`
+	MentionRoles    []int64 `json:"mention_roles"`
 
-	DelResponse       bool
-	PublishResponse   bool
-	EphemeralResponse bool
+	DelResponse       bool `json:"del_response"`
+	PublishResponse   bool `json:"publish_response"`
+	EphemeralResponse bool `json:"ephemeral_response"`
 
-	DelResponseDelay         int
-	EmbedsToSend             []*discordgo.MessageEmbed
-	ComponentsToSend         []discordgo.TopLevelComponent
-	AddResponseReactionNames []string
+	DelResponseDelay         int                           `json:"del_response_delay"`
+	EmbedsToSend             []*discordgo.MessageEmbed     `json:"embeds_to_send"`
+	ComponentsToSend         []discordgo.TopLevelComponent `json:"components_to_send"`
+	AddResponseReactionNames []string                      `json:"add_response_reaction_names"`
 
-	isNestedTemplate bool
+	IsNestedTemplate bool `json:"is_nested_template"`
 	parsedTemplate   *template.Template
-	SendResponseInDM bool
+	SendResponseInDM bool `json:"send_response_in_dm"`
 
-	Interaction *CustomCommandInteraction
+	Interaction *CustomCommandInteraction `json:"interaction"`
 }
 
 type CustomCommandInteraction struct {
-	*discordgo.Interaction
-	RespondedTo bool
-	Deferred    bool
+	*discordgo.Interaction `json:"interaction"`
+	RespondedTo            bool `json:"responded_to"`
+	Deferred               bool `json:"deferred"`
+}
+
+func (c *CustomCommandInteraction) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Interaction *discordgo.Interaction `json:"interaction"`
+		RespondedTo bool                   `json:"responded_to"`
+		Deferred    bool                   `json:"deferred"`
+	}
+
+	err := json.Unmarshal(data, &aux)
+	if err != nil {
+		return err
+	}
+
+	c.Interaction = aux.Interaction
+	c.RespondedTo = aux.RespondedTo
+	c.Deferred = aux.Deferred
+
+	return nil
 }
 
 func NewContext(gs *dstate.GuildSet, cs *dstate.ChannelState, ms *dstate.MemberState) *Context {
@@ -389,10 +473,33 @@ func (c *Context) executeParsed() (string, error) {
 	var buf bytes.Buffer
 	w := LimitWriter(&buf, 25000)
 
-	// started := time.Now()
+	started := time.Now()
+
+	//log only if execution takes longer than 5 seconds
+	timer := time.AfterFunc(5*time.Second, func() {
+		logger.WithFields(logrus.Fields{
+			"guild_id":      c.GS.ID,
+			"executed_from": c.ExecutedFrom,
+			"cc_id":         c.Data["CCID"],
+		}).Warn("Template execution is taking longer than 5 seconds")
+	})
+
 	err := parsed.Execute(w, c.Data)
 
-	// dur := time.Since(started)
+	defer func() {
+		timer.Stop()
+		dur := time.Since(started)
+		if dur > 5*time.Second {
+			logger.WithFields(logrus.Fields{
+				"guild_id":      c.GS.ID,
+				"executed_from": c.ExecutedFrom,
+				"cc_id":         c.Data["CCID"],
+				"success":       err == nil,
+				"duration":      dur,
+			}).Warn("Long template execution finished")
+		}
+	}()
+
 	if c.FixedOutput != "" {
 		return c.FixedOutput, nil
 	}
@@ -414,7 +521,7 @@ func (c *Context) newContextFrame(cs *dstate.ChannelState) *ContextFrame {
 	old := c.CurrentFrame
 	c.CurrentFrame = &ContextFrame{
 		CS:               cs,
-		isNestedTemplate: true,
+		IsNestedTemplate: true,
 	}
 
 	return old
@@ -541,14 +648,14 @@ func (c *Context) SendResponse(content string) (m *discordgo.Message, err error)
 			Content:         msgSend.Content,
 			Embeds:          msgSend.Embeds,
 			AllowedMentions: &msgSend.AllowedMentions,
-			Flags:           int64(msgSend.Flags),
+			Flags:           msgSend.Flags,
 		})
 	case sendMessageInteractionDeferred:
 		m, err = common.BotSession.EditOriginalInteractionResponse(common.BotApplication.ID, c.CurrentFrame.Interaction.Token, &discordgo.WebhookParams{
 			Content:         msgSend.Content,
 			Embeds:          msgSend.Embeds,
 			AllowedMentions: &msgSend.AllowedMentions,
-			Flags:           int64(msgSend.Flags),
+			Flags:           msgSend.Flags,
 		})
 		if err == nil {
 			c.CurrentFrame.Interaction.Deferred = false
@@ -596,6 +703,11 @@ const (
 	sendMessageInteractionFollowup
 	sendMessageInteractionDeferred
 )
+
+// SetCooldown Sets a cooldown for a key, returns true if the key is already on cooldown
+func (c *Context) SetCooldown(key string, duration time.Duration) bool {
+	return templateCooldownTracker.Set(key, duration)
+}
 
 // IncreaseCheckCallCounter Returns true if key is above the limit
 func (c *Context) IncreaseCheckCallCounter(key string, limit int) bool {
@@ -652,7 +764,7 @@ func (c *Context) LogEntry() *logrus.Entry {
 }
 
 func (c *Context) addContextFunc(name string, f interface{}) {
-	if !common.ContainsStringSlice(c.DisabledContextFuncs, name) {
+	if !slices.Contains(c.DisabledContextFuncs, name) {
 		c.ContextFuncs[name] = f
 	}
 }
@@ -663,8 +775,6 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("deleteResponse", c.tmplDelResponse)
 	c.addContextFunc("deleteTrigger", c.tmplDelTrigger)
 
-	c.addContextFunc("editComponentMessage", c.tmplEditComponentsMessage(true))
-	c.addContextFunc("editComponentMessageNoEscape", c.tmplEditComponentsMessage(false))
 	c.addContextFunc("editMessage", c.tmplEditMessage(true))
 	c.addContextFunc("editMessageNoEscape", c.tmplEditMessage(false))
 	c.addContextFunc("getMessage", c.tmplGetMessage)
@@ -675,11 +785,15 @@ func baseContextFuncs(c *Context) {
 
 	// Message send functions
 	c.addContextFunc("sendDM", c.tmplSendDM)
+
+	//TODO: Remove these component functions
 	c.addContextFunc("sendComponentMessageRetID", c.tmplSendComponentsMessage(true, true))
 	c.addContextFunc("sendComponentMessage", c.tmplSendComponentsMessage(true, false))
 	c.addContextFunc("sendComponentMessageNoEscape", c.tmplSendComponentsMessage(false, false))
 	c.addContextFunc("sendComponentMessageNoEscapeRetID", c.tmplSendComponentsMessage(false, true))
-	c.addContextFunc("sendComponentMessageRetID", c.tmplSendComponentsMessage(true, true))
+	c.addContextFunc("editComponentMessage", c.tmplEditComponentsMessage(true))
+	c.addContextFunc("editComponentMessageNoEscape", c.tmplEditComponentsMessage(false))
+
 	c.addContextFunc("sendMessage", c.tmplSendMessage(true, false))
 	c.addContextFunc("sendMessageNoEscape", c.tmplSendMessage(false, false))
 	c.addContextFunc("sendMessageNoEscapeRetID", c.tmplSendMessage(false, true))
@@ -752,6 +866,8 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("getMember", c.tmplGetMember)
 	c.addContextFunc("getMemberVoiceState", c.tmplGetMemberVoiceState)
 	c.addContextFunc("editNickname", c.tmplEditNickname)
+	c.addContextFunc("memberAbove", c.tmplMemberAbove)
+	c.addContextFunc("memberAboveRole", c.tmplMemberAboveRole)
 
 	// Thread functions
 	c.addContextFunc("addThreadMember", c.tmplThreadMemberAdd)
@@ -1015,7 +1131,7 @@ func (d Dict) MarshalJSON() ([]byte, error) {
 	return json.Marshal(md)
 }
 
-type SDict map[string]interface{}
+type SDict map[string]any
 
 func (d SDict) Set(key string, value interface{}) (string, error) {
 	d[key] = value
@@ -1140,12 +1256,95 @@ func (s Slice) StringSlice(flag ...bool) interface{} {
 	return StringSlice
 }
 
-type ComponentBuilder struct {
-	Components []string
-	Values     []interface{}
+type ModalBuilder struct {
+	Title      string
+	CustomID   string
+	Components []discordgo.TopLevelComponent
 }
 
-func (s *ComponentBuilder) Add(key string, value interface{}) (interface{}, error) {
+func (s *ModalBuilder) Set(key string, value any) (*ModalBuilder, error) {
+	switch key {
+	case "title":
+		s.Title = ToString(value)
+	case "custom_id":
+		cID, err := validateCustomID(ToString(value), nil)
+		if err != nil {
+			return nil, err
+		}
+		s.CustomID = cID
+	case "components":
+		val, _ := indirect(reflect.ValueOf(value))
+		s.Components = make([]discordgo.TopLevelComponent, 0)
+		if val.Kind() == reflect.Slice {
+			for i := 0; i < val.Len(); i++ {
+				_, err := s.addComponent(val.Index(i).Interface())
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			return nil, errors.New("components must be a slice of Labels or TextFields")
+		}
+	default:
+		return nil, errors.New("invalid key, accepted keys are: title, custom_id, components")
+	}
+	return s, nil
+}
+
+func (s *ModalBuilder) addComponent(comp any) (*ModalBuilder, error) {
+	if len(s.Components) == 5 {
+		return nil, errors.New("modal builder can only have maximum 5 top level components")
+	}
+
+	if comp, ok := comp.(discordgo.TopLevelComponent); ok {
+		if !comp.IsModalSupported() {
+			return nil, errors.New("invalid top level component passed to modal builder")
+		}
+		s.Components = append(s.Components, comp)
+	} else {
+		return nil, errors.New("invalid top level component passed to modal builder")
+	}
+
+	return s, nil
+}
+
+func (s *ModalBuilder) AddComponents(comps ...any) (*ModalBuilder, error) {
+	for _, comp := range comps {
+		val, _ := indirect(reflect.ValueOf(comp))
+		if val.Kind() == reflect.Slice {
+			for i := 0; i < val.Len(); i++ {
+				_, err := s.addComponent(val.Index(i).Interface())
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			_, err := s.addComponent(comp)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s, nil
+}
+
+func (s *ModalBuilder) toModal() (*discordgo.InteractionResponse, error) {
+	return &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseModal,
+		Data: &discordgo.InteractionResponseData{
+			Title:      s.Title,
+			CustomID:   s.CustomID,
+			Components: s.Components,
+		},
+	}, nil
+}
+
+type ComponentBuilder struct {
+	Components []string
+	Values     []any
+}
+
+func (s *ComponentBuilder) Add(key string, value any) (interface{}, error) {
 	if len(s.Components)+1 > MaxSliceLength {
 		return nil, errors.New("resulting slice exceeds slice size limit")
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,6 +67,7 @@ func memberPresentInVerificationPendingSet(guildID int64, userID int64) bool {
 
 // Function to check if member is present in verification pending set, and add if not present
 func addMemberToVerificationPendingSet(guildID int64, userID int64) {
+	logger.WithField("guild", guildID).WithField("user", userID).Info("Adding member to verification pending set")
 	if memberPresentInVerificationPendingSet(guildID, userID) {
 		// Member is already in the set
 		return
@@ -86,6 +88,7 @@ func RandStringRunes(n int) string {
 }
 
 func (p *Plugin) handleVerificationAfterScreening(member *discordgo.Member) {
+
 	conf, err := models.FindVerificationConfigG(context.Background(), member.GuildID)
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -97,6 +100,7 @@ func (p *Plugin) handleVerificationAfterScreening(member *discordgo.Member) {
 	if !conf.Enabled {
 		return
 	}
+	logger.WithField("guild", member.GuildID).WithField("user", member.User.ID).Info("Initiating verification!")
 	gs := bot.State.GetGuild(member.GuildID)
 	roleInvalid := true
 	for _, role := range gs.Roles {
@@ -109,15 +113,18 @@ func (p *Plugin) handleVerificationAfterScreening(member *discordgo.Member) {
 		cop := *conf
 		cop.Enabled = false
 		cop.UpdateG(context.Background(), boil.Whitelist("enabled"))
+		logger.WithField("guild", member.GuildID).WithField("user", member.User.ID).Error("Verification config disabled, because the verified role is invalid or deleted")
 		return
 	}
 
 	// Check if member is already verified, if yes then remove any scheduled events
-	if common.ContainsInt64Slice(member.Roles, conf.VerifiedRole) {
+	if slices.Contains(member.Roles, conf.VerifiedRole) {
+		logger.WithField("guild", member.GuildID).WithField("user", member.User.ID).Info("Member already verified, clearing scheduled events")
 		err = p.clearScheduledEvents(context.Background(), member.GuildID, member.User.ID)
 		if err != nil {
 			logger.WithError(err).WithField("guild", member.GuildID).WithField("user", member.User.ID).Error("failed clearing past scheduled warn/kick events")
 		}
+
 		return
 	}
 
@@ -189,7 +196,7 @@ func (p *Plugin) createVerificationSession(userID, guildID int64) (string, error
 }
 
 func (p *Plugin) startVerificationProcess(conf *models.VerificationConfig, guildID int64, target *discordgo.User) {
-
+	logger.WithField("guild", guildID).WithField("user", target.ID).Info("Creating verification session")
 	token, err := p.createVerificationSession(target.ID, guildID)
 	if err != nil {
 		logger.WithError(err).WithField("user", target.ID).WithField("guild", guildID).Error("failed creating verification session")
@@ -198,7 +205,7 @@ func (p *Plugin) startVerificationProcess(conf *models.VerificationConfig, guild
 
 	gs := bot.State.GetGuild(guildID)
 	if gs == nil {
-		logger.Error("guild not available")
+		logger.WithField("guild", guildID).WithField("user", target.ID).Error("guild not available")
 		return
 	}
 
@@ -209,13 +216,13 @@ func (p *Plugin) startVerificationProcess(conf *models.VerificationConfig, guild
 
 	ms, err := bot.GetMember(guildID, target.ID)
 	if err != nil {
-		logger.WithError(err).Error("failed retrieving member")
+		logger.WithError(err).WithField("guild", guildID).WithField("user", target.ID).Error("failed retrieving member")
 		return
 	}
 
 	channel, err := common.BotSession.UserChannelCreate(ms.User.ID)
 	if err != nil {
-		logger.WithError(err).Error("failed creating user channel")
+		logger.WithError(err).WithField("guild", guildID).WithField("user", target.ID).Error("failed creating user channel")
 		return
 	}
 
@@ -362,7 +369,7 @@ func (p *Plugin) handleUserVerifiedScheduledEvent(ms *dstate.MemberState, guildI
 }
 
 func (p *Plugin) checkMemberAlreadyVerified(ms *dstate.MemberState, conf *models.VerificationConfig) bool {
-	if !common.ContainsInt64Slice(ms.Member.Roles, conf.VerifiedRole) {
+	if !slices.Contains(ms.Member.Roles, conf.VerifiedRole) {
 		return false
 	}
 
@@ -531,7 +538,7 @@ func (p *Plugin) logAction(guildID int64, channelID int64, author *discordgo.Use
 		if common.IsDiscordErr(err, discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeUnknownChannel) {
 			go p.disableLogChannel(guildID)
 		} else {
-			logger.WithError(err).WithField("channel", channelID).Error("failed sending log message")
+			logger.WithError(err).WithField("guild", guildID).WithField("channel", channelID).Error("failed sending log message")
 		}
 	}
 }

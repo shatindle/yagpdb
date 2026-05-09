@@ -29,12 +29,11 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
-	"github.com/botlabs-gg/yagpdb/v2/common"
 	"github.com/botlabs-gg/yagpdb/v2/common/templates"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
@@ -150,7 +149,7 @@ func ValidateForm(guild *dstate.GuildSet, tmpl TemplateData, form interface{}) b
 					break
 				}
 
-				if newS != "" && !common.ContainsStringSlice(newSlice, newS) {
+				if newS != "" && !slices.Contains(newSlice, newS) {
 					newSlice = append(newSlice, newS)
 				}
 			}
@@ -198,21 +197,7 @@ func ValidateForm(guild *dstate.GuildSet, tmpl TemplateData, form interface{}) b
 		}
 
 		if err != nil {
-
-			// Create a pretty name for the field by turing: "AnnounceMessage" into "Announce Message"
-			prettyField := ""
-			for _, r := range tField.Name {
-				if unicode.IsUpper(r) {
-					if prettyField != "" {
-						prettyField += " "
-					}
-				}
-
-				prettyField += string(r)
-			}
-			prettyField = strings.TrimSpace(prettyField)
-
-			tmpl.AddAlerts(ErrorAlert(prettyField, ": ", err.Error()))
+			tmpl.AddAlerts(ErrorAlert(tField.Name, ": ", err.Error()))
 			ok = false
 		}
 	}
@@ -243,7 +228,7 @@ func ValidateIntSliceField(is []int64, tags *ValidationTag, guild *dstate.GuildS
 			return filtered, err
 		}
 
-		if keep && !common.ContainsInt64Slice(filtered, integer) {
+		if keep && !slices.Contains(filtered, integer) {
 			filtered = append(filtered, integer)
 		}
 	}

@@ -137,7 +137,14 @@ var yagFuncs = {
   cembed: true,
   cbutton: true,
   cmenu: true,
-  cmodal: true,
+  ctextInput: true,
+  ctextDisplay: true,
+  cradioGroup: true,
+  ccheckbox: true,
+  ccheckboxGroup: true,
+  clabel: true,
+  componentBuilder: true,
+  modalBuilder: true,
   cslice: true,
   complexMessage: true,
   complexMessageEdit: true,
@@ -205,4 +212,5 @@ var yagFuncs = {
   dbBottomEntries: true,
   dbCount: true,
   dbRank: true,
+
 };

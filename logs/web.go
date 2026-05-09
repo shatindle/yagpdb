@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -241,7 +242,7 @@ func CheckCanAccessLogs(w http.ResponseWriter, r *http.Request, config *models.G
 	member := web.ContextMember(ctx)
 	if member == nil {
 		goTo := url.QueryEscape(r.RequestURI)
-		alertLink := fmt.Sprintf(`<a href="%s/login?goto=%s">log in with Discord</a>`, web.BaseURL(), goTo)
+		alertLink := fmt.Sprintf(`<a href="%s/login?goto=%s">Login with Discord</a>`, web.BaseURL(), goTo)
 		alertMsg := fmt.Sprintf("This server has restricted log access to members only. Please %s to view this log.", alertLink)
 
 		tmpl.AddAlerts(web.ErrorAlert(alertMsg))
@@ -369,7 +370,7 @@ func SetMessageLogsColors(guildID int64, views []*MessageView) {
 	users := make([]int64, 0, 50)
 
 	for _, v := range views {
-		if !common.ContainsInt64Slice(users, v.Model.AuthorID) {
+		if !slices.Contains(users, v.Model.AuthorID) {
 			users = append(users, v.Model.AuthorID)
 		}
 	}

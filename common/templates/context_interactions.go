@@ -1,7 +1,7 @@
 package templates
 
 import (
-	"fmt"
+	"encoding/base64"
 	"reflect"
 	"strings"
 
@@ -11,6 +11,8 @@ import (
 )
 
 var ErrTooManyInteractionResponses = errors.New("cannot respond to an interaction > 1 time; consider using a followup")
+
+const TemplateCustomIDPrefix = "templates-"
 
 func interactionContextFuncs(c *Context) {
 	c.addContextFunc("deleteInteractionResponse", c.tmplDeleteInteractionResponse)
@@ -27,7 +29,26 @@ func interactionContextFuncs(c *Context) {
 	c.addContextFunc("updateMessageNoEscape", c.tmplUpdateMessage(false))
 }
 
-func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) {
+func CreateModalBuilder(customID string, title string, components ...any) (*ModalBuilder, error) {
+	cid, err := validateCustomID(customID, nil)
+	if err != nil {
+		return nil, err
+	}
+	modal := &ModalBuilder{
+		Title:    title,
+		CustomID: cid,
+	}
+	for _, component := range components {
+		_, err := modal.addComponent(component)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return modal, nil
+}
+
+func CreateModal(values ...any) (*discordgo.InteractionResponse, error) {
 	if len(values) < 1 {
 		return &discordgo.InteractionResponse{}, errors.New("no values passed to component builder")
 	}
@@ -38,7 +59,11 @@ func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) 
 		m = t
 	case *SDict:
 		m = *t
-	case map[string]interface{}:
+	case ModalBuilder:
+		return t.toModal()
+	case *ModalBuilder:
+		return t.toModal()
+	case map[string]any:
 		m = t
 	default:
 		dict, err := StringKeyDictionary(values...)
@@ -48,14 +73,29 @@ func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) 
 		m = dict
 	}
 
-	modal := &discordgo.InteractionResponseData{CustomID: "templates-0"} // default cID if not set
+	modalBuilder := &ModalBuilder{
+		CustomID: TemplateCustomIDPrefix + "-0",
+	}
+	_, hasComponentsKey := m["components"]
+	_, hasFieldsKey := m["fields"]
+	if hasComponentsKey && hasFieldsKey {
+		return nil, errors.New("cannot have both 'components' and 'fields' in a cmodal")
+	}
 
 	for key, val := range m {
 		switch key {
 		case "title":
-			modal.Title = ToString(val)
+			modalBuilder.Title = ToString(val)
 		case "custom_id":
-			modal.CustomID = "templates-" + ToString(val)
+			cid, err := validateCustomID(ToString(val), nil)
+			if err != nil {
+				return nil, err
+			}
+			modalBuilder.CustomID = cid
+		case "components":
+			modalBuilder.Set("components", val)
+
+		//TODO: Deprecate this key in future versions
 		case "fields":
 			if val == nil {
 				continue
@@ -79,7 +119,7 @@ func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) 
 						return nil, err
 					}
 					usedCustomIDs[field.CustomID] = true
-					modal.Components = append(modal.Components, discordgo.ActionsRow{Components: []discordgo.InteractiveComponent{field}})
+					modalBuilder.Components = append(modalBuilder.Components, discordgo.ActionsRow{Components: []discordgo.InteractiveComponent{field}})
 				}
 			} else {
 				f, err := CreateComponent(discordgo.TextInputComponent, val)
@@ -94,7 +134,7 @@ func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) 
 				if err != nil {
 					return nil, err
 				}
-				modal.Components = append(modal.Components, discordgo.ActionsRow{Components: []discordgo.InteractiveComponent{field}})
+				modalBuilder.Components = append(modalBuilder.Components, discordgo.ActionsRow{Components: []discordgo.InteractiveComponent{field}})
 			}
 		default:
 			return nil, errors.New(`invalid key "` + key + `" passed to send message builder`)
@@ -102,10 +142,7 @@ func CreateModal(values ...interface{}) (*discordgo.InteractionResponse, error) 
 
 	}
 
-	return &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: modal,
-	}, nil
+	return modalBuilder.toModal()
 }
 
 func (c *Context) tmplDeleteInteractionResponse(interactionToken, msgID interface{}, delaySeconds ...interface{}) (interface{}, error) {
@@ -134,6 +171,10 @@ func (c *Context) tmplDeleteInteractionResponse(interactionToken, msgID interfac
 
 func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(interactionToken, msgID, msg interface{}) (interface{}, error) {
 	return func(interactionToken, msgID, msg interface{}) (interface{}, error) {
+		if c.CurrentFrame.Interaction == nil {
+			return "", errors.New("no interaction data in context")
+		}
+
 		if c.IncreaseCheckGenericAPICall() {
 			return "", ErrTooManyAPICalls
 		}
@@ -149,55 +190,13 @@ func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(i
 			editOriginal = true
 		}
 
-		msgEditResponse := &discordgo.WebhookParams{
-			AllowedMentions: &discordgo.AllowedMentions{Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}},
-		}
 		var err error
-
-		switch typedMsg := msg.(type) {
-
-		case *discordgo.MessageEmbed:
-			msgEditResponse.Embeds = []*discordgo.MessageEmbed{typedMsg}
-		case []*discordgo.MessageEmbed:
-			msgEditResponse.Embeds = typedMsg
-		case *discordgo.MessageEdit:
-			embeds := make([]*discordgo.MessageEmbed, 0, len(typedMsg.Embeds))
-			//If there are no Embeds and string are explicitly set as null, give an error message.
-			if typedMsg.Content != nil && strings.TrimSpace(*typedMsg.Content) == "" {
-				if len(typedMsg.Embeds) == 0 && len(typedMsg.Components) == 0 {
-					return "", errors.New("both content and embed cannot be null")
-				}
-
-				//only keep valid embeds
-				for _, e := range typedMsg.Embeds {
-					if e != nil && !e.GetMarshalNil() {
-						embeds = append(typedMsg.Embeds, e)
-					}
-				}
-				if len(embeds) == 0 && len(typedMsg.Components) == 0 {
-					return "", errors.New("both content and embed cannot be null")
-				}
-			}
-			if typedMsg.Content != nil {
-				msgEditResponse.Content = *typedMsg.Content
-			}
-			msgEditResponse.Embeds = typedMsg.Embeds
-			msgEditResponse.Components = typedMsg.Components
-			msgEditResponse.AllowedMentions = &typedMsg.AllowedMentions
-		case *ComponentBuilder:
-			msg, err := typedMsg.ToComplexMessageEdit()
-			if err != nil {
-				return "", err
-			}
-			msgEditResponse.Components = msg.Components
-			msgEditResponse.Flags = int64(msg.Flags)
-			msgEditResponse.AllowedMentions = &msg.AllowedMentions
-
-		default:
-			temp := fmt.Sprint(msg)
-			msgEditResponse.Content = temp
+		msgSend, err := c.parseMessageInput(msg)
+		if err != nil {
+			return "", err
 		}
 
+		msgEditResponse := msgSend.ToWebhookParams()
 		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
 		var repliedUser bool
 		if !filterSpecialMentions {
@@ -208,7 +207,7 @@ func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(i
 
 		if editOriginal {
 			_, err = common.BotSession.EditOriginalInteractionResponse(common.BotApplication.ID, token, msgEditResponse)
-			if err == nil && token == c.CurrentFrame.Interaction.Token {
+			if err == nil && c.CurrentFrame.Interaction != nil && token == c.CurrentFrame.Interaction.Token {
 				c.CurrentFrame.Interaction.RespondedTo = true
 				c.CurrentFrame.Interaction.Deferred = false
 			}
@@ -276,11 +275,15 @@ func (c *Context) tmplSendModal(modal interface{}) (interface{}, error) {
 	var typedModal *discordgo.InteractionResponse
 	var err error
 	switch m := modal.(type) {
+	case ModalBuilder:
+		typedModal, err = m.toModal()
+	case *ModalBuilder:
+		typedModal, err = m.toModal()
 	case *discordgo.InteractionResponse:
 		typedModal = m
 	case discordgo.InteractionResponse:
 		typedModal = &m
-	case SDict, *SDict, map[string]interface{}:
+	case SDict, *SDict, map[string]any:
 		typedModal, err = CreateModal(m)
 	default:
 		return "", errors.New("invalid modal passed to sendModal")
@@ -301,50 +304,24 @@ func (c *Context) tmplSendModal(modal interface{}) (interface{}, error) {
 	return "", nil
 }
 
-func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, returnID bool) func(interactionToken interface{}, msg interface{}) interface{} {
-	return func(interactionToken interface{}, msg interface{}) interface{} {
+func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, returnID bool) func(interactionToken interface{}, msg interface{}) (interface{}, error) {
+	return func(interactionToken interface{}, msg interface{}) (interface{}, error) {
 		if c.IncreaseCheckGenericAPICall() {
-			return ""
+			return "", ErrTooManyAPICalls
 		}
 
 		sendType, token := c.tokenArg(interactionToken)
 		if token == "" {
-			return ""
+			return "", errors.New("invalid interaction token")
 		}
 
 		var m *discordgo.Message
-		msgReponse := &discordgo.InteractionResponseData{}
-		var err error
-
-		switch typedMsg := msg.(type) {
-		case *discordgo.MessageEmbed:
-			msgReponse.Embeds = []*discordgo.MessageEmbed{typedMsg}
-		case []*discordgo.MessageEmbed:
-			msgReponse.Embeds = typedMsg
-		case *discordgo.MessageSend:
-			msgReponse.Content = typedMsg.Content
-			msgReponse.Embeds = typedMsg.Embeds
-			msgReponse.Components = typedMsg.Components
-			msgReponse.Flags = typedMsg.Flags
-			msgReponse.Files = typedMsg.Files
-			if typedMsg.File != nil {
-				msgReponse.Files = []*discordgo.File{typedMsg.File}
-			}
-		case *ComponentBuilder:
-			msg, err := typedMsg.ToComplexMessage()
-			if err != nil {
-				return ""
-			}
-			msgReponse.Components = msg.Components
-			msgReponse.Flags = msg.Flags
-			msgReponse.Files = msg.Files
-			msgReponse.AllowedMentions = &msg.AllowedMentions
-			if msg.File != nil {
-				msgReponse.Files = []*discordgo.File{msg.File}
-			}
-		default:
-			msgReponse.Content = ToString(msg)
+		msgSend, err := c.parseMessageInput(msg)
+		if err != nil {
+			return "", err
 		}
+
+		msgReponse := msgSend.ToInteractionResponseData()
 
 		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
 		var repliedUser bool
@@ -353,11 +330,10 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 			repliedUser = true
 			msgReponse.AllowedMentions = &discordgo.AllowedMentions{Parse: parseMentions, RepliedUser: repliedUser}
 		}
-
 		switch sendType {
 		case sendMessageInteractionResponse:
 			if c.IncreaseCheckCallCounter("interaction_response", 1) {
-				return ""
+				return "", ErrTooManyInteractionResponses
 			}
 			err = common.BotSession.CreateInteractionResponse(c.CurrentFrame.Interaction.ID, token, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -382,16 +358,16 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 				Components:      msgReponse.Components,
 				Embeds:          msgReponse.Embeds,
 				AllowedMentions: msgReponse.AllowedMentions,
-				Flags:           int64(msgReponse.Flags),
+				Flags:           msgReponse.Flags,
 				File:            file,
 			})
 		}
 
 		if err == nil && returnID {
-			return m.ID
+			return m.ID, nil
 		}
 
-		return ""
+		return "", err
 	}
 }
 
@@ -409,54 +385,11 @@ func (c *Context) tmplUpdateMessage(filterSpecialMentions bool) func(msg interfa
 			return "", ErrTooManyInteractionResponses
 		}
 
-		msgResponseEdit := &discordgo.InteractionResponseData{
-			AllowedMentions: &discordgo.AllowedMentions{Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}},
+		msgSend, err := c.parseMessageInput(msg)
+		if err != nil {
+			return "", err
 		}
-		var err error
-
-		switch typedMsg := msg.(type) {
-
-		case *discordgo.MessageEmbed:
-			msgResponseEdit.Embeds = []*discordgo.MessageEmbed{typedMsg}
-		case []*discordgo.MessageEmbed:
-			msgResponseEdit.Embeds = typedMsg
-		case *discordgo.MessageEdit:
-			embeds := make([]*discordgo.MessageEmbed, 0, len(typedMsg.Embeds))
-			//If there are no Embeds and string are explicitly set as null, give an error message.
-			if typedMsg.Flags&discordgo.MessageFlagsIsComponentsV2 == 0 && typedMsg.Content != nil && strings.TrimSpace(*typedMsg.Content) == "" {
-				if len(typedMsg.Embeds) == 0 && len(typedMsg.Components) == 0 {
-					return "", errors.New("both content and embed cannot be null")
-				}
-
-				//only keep valid embeds
-				for _, e := range typedMsg.Embeds {
-					if e != nil && !e.GetMarshalNil() {
-						embeds = append(typedMsg.Embeds, e)
-					}
-				}
-				if len(embeds) == 0 && len(typedMsg.Components) == 0 {
-					return "", errors.New("both content and embed cannot be null")
-				}
-			}
-			if typedMsg.Content != nil {
-				msgResponseEdit.Content = *typedMsg.Content
-			}
-			msgResponseEdit.Embeds = typedMsg.Embeds
-			msgResponseEdit.Components = typedMsg.Components
-			msgResponseEdit.AllowedMentions = &typedMsg.AllowedMentions
-		case *ComponentBuilder:
-			msg, err := typedMsg.ToComplexMessageEdit()
-			if err != nil {
-				return "", err
-			}
-			msgResponseEdit.Components = msg.Components
-			msgResponseEdit.Flags = msg.Flags
-			msgResponseEdit.AllowedMentions = &msg.AllowedMentions
-		default:
-			temp := fmt.Sprint(msg)
-			msgResponseEdit.Content = temp
-		}
-
+		msgResponseEdit := msgSend.ToInteractionResponseData()
 		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
 		repliedUser := false
 		if !filterSpecialMentions {
@@ -484,8 +417,7 @@ func (c *Context) tmplUpdateMessage(filterSpecialMentions bool) func(msg interfa
 // these. also returns the sendMessageType.
 func (c *Context) tokenArg(interactionToken interface{}) (sendType sendMessageType, token string) {
 	sendType = sendMessageInteractionFollowup
-
-	token, ok := interactionToken.(string)
+	sToken, ok := interactionToken.(string)
 	if !ok {
 		if interactionToken == nil && c.CurrentFrame.Interaction != nil {
 			// no token provided, assume current interaction
@@ -493,6 +425,24 @@ func (c *Context) tokenArg(interactionToken interface{}) (sendType sendMessageTy
 		} else {
 			return
 		}
+	} else {
+		sToken = strings.TrimSpace(sToken)
+		//rudimentary check for valid token because people don't read docs and will send anything.
+		decoded, err := base64.RawURLEncoding.DecodeString(sToken)
+		if err != nil {
+			decoded, err = base64.URLEncoding.DecodeString(sToken)
+		}
+		if err != nil {
+			return
+		}
+		parts := strings.SplitN(string(decoded), ":", 3)
+		if len(parts) < 3 {
+			return
+		}
+		if parts[0] != "interaction" {
+			return
+		}
+		token = sToken
 	}
 
 	if c.CurrentFrame.Interaction != nil && token == c.CurrentFrame.Interaction.Token && !c.CurrentFrame.Interaction.RespondedTo {

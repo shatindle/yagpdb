@@ -1,7 +1,7 @@
 package mqueue
 
 import (
-	"encoding/json"
+	"slices"
 	"time"
 
 	"emperror.dev/errors"
@@ -74,25 +74,19 @@ var disableOnError = []int{
 	discordgo.ErrCodeUnknownChannel,
 	discordgo.ErrCodeMissingAccess,
 	discordgo.ErrCodeMissingPermissions,
+	discordgo.ErrCodeCannotSendMessagesInVoiceChannel,
+	discordgo.ErrCodeUnknownWebhook,
 	30007,  // max number of webhooks
 	220001, // webhook points to a forum channel
 }
 
 func maybeDisableFeed(source PluginWithSourceDisabler, elem *QueuedElement, err *discordgo.RESTError) {
-	// source.HandleMQueueError(elem, errors.Cause(err))
-	if err.Message == nil || !common.ContainsIntSlice(disableOnError, err.Message.Code) {
-		// don't disable
-		l := logger.WithError(err).WithField("source", elem.Source).WithField("sourceid", elem.SourceItemID)
-		if elem.MessageEmbed != nil {
-			serializedEmbed, _ := json.Marshal(elem.MessageEmbed)
-			l = l.WithField("embed", serializedEmbed)
-		}
-
+	l := logger.WithError(err).WithField("source", elem.Source).WithField("sourceid", elem.SourceItemID).WithField("guild_id", elem.GuildID)
+	if err.Message == nil || !slices.Contains(disableOnError, err.Message.Code) {
 		l.Error("error sending mqueue message")
 		return
 	}
-
-	logger.WithError(err).Warnf("disabling feed item %s from %s", elem.SourceItemID, elem.Source)
+	l.Warn("disabling feed item")
 	source.DisableFeed(elem, err)
 }
 
@@ -170,7 +164,7 @@ func trySendWebhook(l *logrus.Entry, elem *QueuedElement) (err error) {
 			AvatarURL:       avatar,
 			Embeds:          elem.MessageSend.Embeds,
 			Components:      elem.MessageSend.Components,
-			Flags:           int64(elem.MessageSend.Flags),
+			Flags:           elem.MessageSend.Flags,
 			AllowedMentions: &elem.MessageSend.AllowedMentions,
 		}
 		_, err = webhookSession.WebhookExecuteComplex(wh.ID, wh.Token, true, params)

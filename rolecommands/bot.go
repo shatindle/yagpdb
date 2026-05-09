@@ -3,6 +3,7 @@ package rolecommands
 import (
 	"context"
 	"database/sql"
+	"slices"
 
 	"github.com/botlabs-gg/yagpdb/v2/analytics"
 	"github.com/botlabs-gg/yagpdb/v2/bot/eventsystem"
@@ -55,8 +56,8 @@ func (p *Plugin) AddCommands() {
 		},
 		ArgSwitches: []*dcmd.ArgDef{
 			{Name: "m", Help: "Message ID", Type: dcmd.BigInt},
-			{Name: "nodm", Help: "Disable DM"},
-			{Name: "rr", Help: "Remove role on reaction removed"},
+			{Name: "nodm", Help: "Disable assignment confirmation DMs"},
+			{Name: "rr", Help: "Disable removing role upon removing reaction"},
 			{Name: "skip", Help: "Number of roles to skip", Default: 0, Type: dcmd.Int},
 		},
 		RunFunc: cmdFuncRoleMenuCreate,
@@ -88,8 +89,8 @@ func (p *Plugin) AddCommands() {
 			{Name: "Message-ID", Type: dcmd.BigInt},
 		},
 		ArgSwitches: []*dcmd.ArgDef{
-			{Name: "nodm", Help: "Disable DM"},
-			{Name: "rr", Help: "Remove role on reaction removed"},
+			{Name: "nodm", Help: "Toggle assignment confirmation DMs"},
+			{Name: "rr", Help: "Toggle removing role upon removing reaction"},
 		},
 		RunFunc: cmdFuncRoleMenuUpdate,
 	}
@@ -280,7 +281,7 @@ func StringCommands(cmds []*models.RoleCommand) string {
 	output := "```\n"
 
 	for _, cmd := range cmds {
-		if common.ContainsInt64Slice(stringedCommands, cmd.Role) {
+		if slices.Contains(stringedCommands, cmd.Role) {
 			continue
 		}
 

@@ -55,9 +55,10 @@ type GroupForm struct {
 	WhitelistChannels []int64 `valid:"channel,true"`
 	BlacklistChannels []int64 `valid:"channel,true"`
 
-	WhitelistRoles []int64 `valid:"role,true"`
-	BlacklistRoles []int64 `valid:"role,true"`
-	IsEnabled      bool
+	WhitelistRoles        []int64 `valid:"role,true"`
+	BlacklistRoles        []int64 `valid:"role,true"`
+	RedirectErrorsChannel int64   `valid:"channel,true"`
+	IsEnabled             bool
 }
 
 type SearchForm struct {
@@ -408,12 +409,13 @@ func handleNewCommand(w http.ResponseWriter, r *http.Request) (web.TemplateData,
 		templateData["CurrentGroupID"] = groupID
 	}
 
-	c, err := models.CustomCommands(qm.Where("guild_id = ?", activeGuild.ID)).CountG(ctx)
+	// Check the limits
+	currentCount, err := models.CustomCommands(qm.Where("guild_id = ? AND disabled = false", activeGuild.ID)).CountG(ctx)
 	if err != nil {
 		return templateData, err
 	}
 
-	if int(c) >= MaxCommandsForContext(ctx) {
+	if int(currentCount) >= MaxCommandsForContext(ctx) {
 		return templateData.AddAlerts(web.ErrorAlert(fmt.Sprintf("Max %d custom commands allowed (or %d for premium servers)", MaxCommands, MaxCommandsPremium))), nil
 	}
 
@@ -490,7 +492,7 @@ func handleNewCommand(w http.ResponseWriter, r *http.Request) (web.TemplateData,
 		go cplogs.RetryAddEntry(web.NewLogEntryFromContext(r.Context(), panelLogKeyImportedCommand, &cplogs.Param{Type: cplogs.ParamTypeInt, Value: dbModel.LocalID}))
 	}
 
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, nil
 }
 
@@ -546,8 +548,20 @@ func handleUpdateCommand(w http.ResponseWriter, r *http.Request) (web.TemplateDa
 	dbModel.GuildID = activeGuild.ID
 	dbModel.LocalID = cmdEdit.ID
 	dbModel.TriggerType = int(triggerTypeFromForm(cmdEdit.TriggerTypeForm))
+
+	// Check limits for role triggers (1 free, 5 premium)
+	if dbModel.TriggerType == int(CommandTriggerRole) {
+		dbModel.ContextChannel = cmdEdit.RoleContextChannel
+		ok, err := checkRoleTriggerLimit(ctx, activeGuild.ID, cmdEdit.ID, templateData)
+		if err != nil || !ok {
+			return templateData, err
+		}
+
+	}
+
 	// check low interval limits
 	if dbModel.TriggerType == int(CommandTriggerInterval) || dbModel.TriggerType == int(CommandTriggerCron) {
+		dbModel.ContextChannel = cmdEdit.TimeContextChannel
 		switch CommandTriggerType(dbModel.TriggerType) {
 		case CommandTriggerInterval:
 			if dbModel.TimeTriggerInterval <= 10 {
@@ -638,7 +652,7 @@ func handleUpdateCommand(w http.ResponseWriter, r *http.Request) (web.TemplateDa
 		go cplogs.RetryAddEntry(web.NewLogEntryFromContext(r.Context(), panelLogKeyDisabledSharingCommand, &cplogs.Param{Type: cplogs.ParamTypeInt, Value: dbModel.LocalID}))
 	}
 
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, err
 }
 
@@ -670,7 +684,7 @@ func handleDeleteCommand(w http.ResponseWriter, r *http.Request) (web.TemplateDa
 
 	err = DelNextRunEvent(cmd.GuildID, cmd.LocalID)
 	featureflags.MarkGuildDirty(activeGuild.ID)
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, err
 }
 
@@ -758,6 +772,29 @@ func checkIntervalLimits(ctx context.Context, guildID int64, cmdID int64, templa
 	return false, nil
 }
 
+func checkRoleTriggerLimit(ctx context.Context, guildID int64, cmdID int64, templateData web.TemplateData) (ok bool, err error) {
+	isPremium := premium.ContextPremium(ctx)
+	limit := MaxRoleTriggerCommandsForContext(ctx)
+	// Check if we're at the limit (excluding the current command being updated)
+	count, err := models.CustomCommands(
+		qm.Where("guild_id = ? AND trigger_type = ? AND local_id != ?", guildID, int(CommandTriggerRole), cmdID),
+	).CountG(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	if int(count) >= limit {
+		msg := fmt.Sprintf("Max %d role trigger commands allowed", limit)
+		if !isPremium {
+			msg = fmt.Sprintf("%s (Premium servers allow up to %d)", msg, MaxRoleTriggerCommandsPremium)
+		}
+		templateData.AddAlerts(web.ErrorAlert(msg))
+		return false, nil
+	}
+
+	return true, nil
+}
+
 func handleNewGroup(w http.ResponseWriter, r *http.Request) (web.TemplateData, error) {
 	ctx := r.Context()
 	activeGuild, templateData := web.GetBaseCPContextData(ctx)
@@ -787,7 +824,7 @@ func handleNewGroup(w http.ResponseWriter, r *http.Request) (web.TemplateData, e
 
 	templateData["CurrentGroupID"] = dbModel.ID
 
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, nil
 }
 
@@ -802,7 +839,6 @@ func handleUpdateGroup(w http.ResponseWriter, r *http.Request) (web.TemplateData
 	if err != nil {
 		return templateData, err
 	}
-	logrus.Infof("groupForm.IsEnabled %#v", groupForm.IsEnabled)
 
 	model.WhitelistChannels = groupForm.WhitelistChannels
 	model.IgnoreChannels = groupForm.BlacklistChannels
@@ -810,13 +846,14 @@ func handleUpdateGroup(w http.ResponseWriter, r *http.Request) (web.TemplateData
 	model.IgnoreRoles = groupForm.BlacklistRoles
 	model.Name = groupForm.Name
 	model.Disabled = !groupForm.IsEnabled
+	model.RedirectErrorsChannel = groupForm.RedirectErrorsChannel
 
 	_, err = model.UpdateG(ctx, boil.Infer())
 	if err == nil {
 		go cplogs.RetryAddEntry(web.NewLogEntryFromContext(r.Context(), panelLogKeyUpdatedGroup, &cplogs.Param{Type: cplogs.ParamTypeString, Value: model.Name}))
 	}
 
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, err
 }
 
@@ -838,7 +875,7 @@ func handleDeleteGroup(w http.ResponseWriter, r *http.Request) (web.TemplateData
 		go cplogs.RetryAddEntry(web.NewLogEntryFromContext(r.Context(), panelLogKeyRemovedGroup, &cplogs.Param{Type: cplogs.ParamTypeInt, Value: id}))
 	}
 
-	pubsub.EvictCacheSet(cachedCommandsMessage, activeGuild.ID)
+	EvictCustomCommandCache(activeGuild.ID)
 	return templateData, err
 }
 
@@ -866,6 +903,8 @@ func triggerTypeFromForm(str string) CommandTriggerType {
 		return CommandTriggerModal
 	case "cron":
 		return CommandTriggerCron
+	case "role_trigger":
+		return CommandTriggerRole
 	default:
 		return CommandTriggerCommand
 
@@ -974,4 +1013,11 @@ func UpdateImportCount(cmd *models.CustomCommand) {
 	if err != nil {
 		logger.WithError(err).WithField("guild", cmd.GuildID).Error("failed running post command imported query")
 	}
+}
+
+func EvictCustomCommandCache(guildID int64) {
+	pubsub.EvictCacheSet(cachedCommandsMessageTrigger, guildID)
+	pubsub.EvictCacheSet(cachedCommandsComponentTrigger, guildID)
+	pubsub.EvictCacheSet(cachedCommandsReactionTrigger, guildID)
+	pubsub.EvictCacheSet(cachedCommandsRoleTrigger, guildID)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/lib/go-reddit"
 	"github.com/botlabs-gg/yagpdb/v2/reddit/models"
+	"github.com/mediocregopher/radix/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
@@ -25,53 +26,75 @@ import (
 )
 
 var (
-	confClientID     = config.RegisterOption("yagpdb.reddit.clientid", "Client ID for the reddit api application", "")
-	confClientSecret = config.RegisterOption("yagpdb.reddit.clientsecret", "Client Secret for the reddit api application", "")
-	confRedirectURI  = config.RegisterOption("yagpdb.reddit.redirect", "Redirect URI for the reddit api application", "")
-	confRefreshToken = config.RegisterOption("yagpdb.reddit.refreshtoken", "RefreshToken for the reddit api application, you need to ackquire this manually, should be set to permanent", "")
-
+	confClientID         = config.RegisterOption("yagpdb.reddit.clientid", "Client ID for the reddit api application", "")
+	confClientSecret     = config.RegisterOption("yagpdb.reddit.clientsecret", "Client Secret for the reddit api application", "")
+	confRedirectURI      = config.RegisterOption("yagpdb.reddit.redirect", "Redirect URI for the reddit api application", "")
+	confRefreshToken     = config.RegisterOption("yagpdb.reddit.refreshtoken", "RefreshToken for the reddit api application, you need to ackquire this manually, should be set to permanent", "")
+	confDevUsername      = config.RegisterOption("yagpdb.reddit.devusername", "Username for the reddit api application", "")
 	confMaxPostsHourFast = config.RegisterOption("yagpdb.reddit.fast_max_posts_hour", "Max posts per hour per guild for fast feed", 60)
 	confMaxPostsHourSlow = config.RegisterOption("yagpdb.reddit.slow_max_posts_hour", "Max posts per hour per guild for slow feed", 120)
 
-	feedLock sync.Mutex
-	fastFeed *PostFetcher
-	slowFeed *PostFetcher
+	lastFeedSuccessAt = time.Now()
+	feedLock          sync.Mutex
+	fastFeed          *PostFetcher
+	slowFeed          *PostFetcher
 )
 
 func (p *Plugin) StartFeed() {
 	go p.runBot()
+	go p.checkFeed()
 }
 
 func (p *Plugin) StopFeed(wg *sync.WaitGroup) {
-	wg.Add(1)
-
 	feedLock.Lock()
 
 	if fastFeed != nil {
+		wg.Add(1)
 		ff := fastFeed
 		go func() {
 			ff.StopChan <- wg
 		}()
 		fastFeed = nil
-	} else {
-		wg.Done()
 	}
 
 	if slowFeed != nil {
+		wg.Add(1)
 		sf := slowFeed
 		go func() {
 			sf.StopChan <- wg
 		}()
 		slowFeed = nil
-	} else {
-		wg.Done()
+	}
+
+	select {
+	case p.stopFeedChan <- wg:
+		wg.Add(1)
+	default:
 	}
 
 	feedLock.Unlock()
 }
 
+func (p *Plugin) checkFeed() {
+	ticker := time.NewTicker(time.Minute * 1)
+	for {
+		select {
+		case <-ticker.C:
+			logger.Infof("Checking Feed Status, last success was %s ago", time.Since(lastFeedSuccessAt))
+			if time.Since(lastFeedSuccessAt) > (10 * time.Minute) {
+				logger.Warnf("No successful feed since %s, restarting", time.Since(lastFeedSuccessAt))
+				p.restartFeed()
+				return
+			}
+		case wg := <-p.stopFeedChan:
+			wg.Done()
+			return
+		}
+	}
+}
+
 func UserAgent() string {
-	return fmt.Sprintf("YAGPDB:%s:%s (by /u/jonas747)", confClientID.GetString(), common.VERSION)
+	return fmt.Sprintf("YAGPDB:%s:%s (by /u/%s)", confClientID.GetString(), common.VERSION, confDevUsername.GetString())
 }
 
 func setupClient() *reddit.Client {
@@ -79,6 +102,17 @@ func setupClient() *reddit.Client {
 		"a", reddit.ScopeEdit+" "+reddit.ScopeRead)
 	redditClient := authenticator.GetAuthClient(&oauth2.Token{RefreshToken: confRefreshToken.GetString()}, UserAgent())
 	return redditClient
+}
+
+func (p *Plugin) restartFeed() {
+	go func() {
+		wg := new(sync.WaitGroup)
+		p.StopFeed(wg)
+		wg.Wait()
+		common.RedisPool.Do(radix.Cmd(nil, "DEL", KeyLastScannedPostIDFast))
+		common.RedisPool.Do(radix.Cmd(nil, "DEL", KeyLastScannedPostIDSlow))
+		p.StartFeed()
+	}()
 }
 
 func (p *Plugin) runBot() {

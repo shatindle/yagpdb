@@ -366,10 +366,11 @@ func (d *ModalSubmitInteractionData) UnmarshalJSON(data []byte) error {
 	for i, v := range v.RawComponents {
 		var ok bool
 		comp := v.MessageComponent
-		d.Components[i], ok = comp.(TopLevelComponent)
+		c, ok := comp.(TopLevelComponent)
 		if !ok {
 			return errors.New("non top level component passed to modal interaction data unmarshaller")
 		}
+		d.Components[i] = c
 	}
 	return err
 }
@@ -528,7 +529,7 @@ type InteractionResponse struct {
 type InteractionResponseData struct {
 	TTS             bool                `json:"tts"`
 	Content         string              `json:"content"`
-	Components      []TopLevelComponent `json:"components"`
+	Components      []TopLevelComponent `json:"components"` //because it can be modal / top level components
 	Embeds          []*MessageEmbed     `json:"embeds"`
 	AllowedMentions *AllowedMentions    `json:"allowed_mentions,omitempty"`
 	Flags           MessageFlags        `json:"flags,omitempty"`
@@ -585,4 +586,17 @@ func VerifyInteraction(r *http.Request, key ed25519.PublicKey) bool {
 	}
 
 	return ed25519.Verify(key, msg.Bytes(), sig)
+}
+func (m *InteractionResponseData) ToMessageSend() *MessageSend {
+	ms := &MessageSend{
+		Content:    m.Content,
+		Embeds:     m.Embeds,
+		Components: m.Components,
+		Files:      m.Files,
+		Flags:      m.Flags,
+	}
+	if m.AllowedMentions != nil {
+		ms.AllowedMentions = *m.AllowedMentions
+	}
+	return ms
 }

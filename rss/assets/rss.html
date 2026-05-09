@@ -2,11 +2,11 @@
 {{template "cp_head" .}}
 
 <style>
-  .rss-tbl-actions-column {
+  .tbl-actions-column {
       display: flex;
       flex-direction: column;
   }
-  .rss-tbl-actions-column > button { 
+  .tbl-actions-column > button { 
     margin: 5px
   }
 
@@ -38,7 +38,7 @@
                     <div class="form-group">
                         <label for="channel">Discord Channel</label>
                         <select id="channel" class="form-control" name="DiscordChannel" data-requireperms-send>
-                            {{textChannelOptions .ActiveGuild.Channels nil false ""}}
+                            {{textOnlyChannelOptions .ActiveGuild.Channels nil false ""}}
                         </select>
                     </div>
                     <div class="form-group">
@@ -87,7 +87,7 @@
                       </td>
                       <td>
                         <select form="feed-item-{{.ID}}" class="form-control" name="DiscordChannel" >
-                          {{textChannelOptions $dot.ActiveGuild.Channels .ChannelID false ""}}
+                          {{textOnlyChannelOptions $dot.ActiveGuild.Channels .ChannelID false ""}}
                         </select>
                       </td>
                       <td>
@@ -103,7 +103,7 @@
                         {{checkbox "Enabled" (print "feed-enabled-" .ID) `` .Enabled (print `form="feed-item-` .ID `"`)}}
                       </td>
                       <td>
-                        <div class="btn-group rss-tbl-actions-column">
+                        <div class="btn-group tbl-actions-column">
                           <button form="feed-item-{{.ID}}" type="submit" class="btn btn-success" formaction="/manage/{{$dot.ActiveGuild.ID}}/rss/{{.ID}}/update">Save</button>
                           <button form="feed-item-{{.ID}}" type="submit" class="btn btn-danger" formaction="/manage/{{$dot.ActiveGuild.ID}}/rss/{{.ID}}/delete">Delete</button>
                         </div>

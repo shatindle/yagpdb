@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -282,7 +283,7 @@ func (m *MessageSend) UnmarshalJSON(data []byte) error {
 
 // MessageFlags is the flags of "message" (see MessageFlags* consts)
 // https://discord.com/developers/docs/resources/channel#message-object-message-flags
-type MessageFlags int
+type MessageFlags int64
 
 // Valid MessageFlags values
 const (
@@ -317,6 +318,16 @@ type File struct {
 	Name        string
 	ContentType string
 	Reader      io.Reader
+}
+
+type PinnedMessage struct {
+	Message  *Message  `json:"message"`
+	PinnedAt time.Time `json:"pinned_at"`
+}
+
+type PinnedItems struct {
+	HasMore bool             `json:"has_more"`
+	Items   []*PinnedMessage `json:"items"`
 }
 
 // MessageSend stores all parameters you can send with ChannelMessageSendComplex.
@@ -355,17 +366,20 @@ func (m *MessageEdit) MarshalJSON() ([]byte, error) {
 	type MessageEditAlias MessageEdit
 	temp := struct {
 		*MessageEditAlias
-		Content         *string             `json:"content,omitempty"`
-		Components      []TopLevelComponent `json:"components"`
-		Embeds          *[]*MessageEmbed    `json:"embeds,omitempty"`
-		AllowedMentions *AllowedMentions    `json:"allowed_mentions,omitempty"`
-		Flags           *MessageFlags       `json:"flags,omitempty"`
+		Content         *string              `json:"content,omitempty"`
+		Components      *[]TopLevelComponent `json:"components,omitempty"`
+		Embeds          *[]*MessageEmbed     `json:"embeds,omitempty"`
+		AllowedMentions *AllowedMentions     `json:"allowed_mentions,omitempty"`
+		Flags           *MessageFlags        `json:"flags,omitempty"`
 	}{
 		MessageEditAlias: (*MessageEditAlias)(m),
 		Content:          m.Content,
-		Components:       m.Components,
 		AllowedMentions:  &m.AllowedMentions,
 		Flags:            &m.Flags,
+	}
+
+	if m.Components != nil {
+		temp.Components = &m.Components
 	}
 
 	if m.Embeds != nil {
@@ -653,4 +667,54 @@ type RoleSubscriptionData struct {
 	TierName                  string `json:"tier_name"`
 	TotalMonthsSubscribed     int    `json:"total_months_subscribed"`
 	IsRenewal                 bool   `json:"is_renewal"`
+}
+
+func (m *MessageSend) ToMessageEdit() *MessageEdit {
+	return &MessageEdit{
+		Content:         &m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		AllowedMentions: m.AllowedMentions,
+		Flags:           m.Flags,
+	}
+}
+
+func (m *MessageEdit) ToMessageSend() *MessageSend {
+	var content string
+	if m.Content != nil {
+		content = *m.Content
+	}
+	return &MessageSend{
+		Content:         content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		AllowedMentions: m.AllowedMentions,
+		Flags:           m.Flags,
+	}
+}
+
+func (m *MessageSend) ToWebhookParams() *WebhookParams {
+	wp := &WebhookParams{
+		Content:         m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		AllowedMentions: &m.AllowedMentions,
+		Flags:           m.Flags,
+		File:            m.File,
+	}
+	if len(m.Files) > 0 {
+		wp.File = m.Files[0]
+	}
+	return wp
+}
+
+func (m *MessageSend) ToInteractionResponseData() *InteractionResponseData {
+	return &InteractionResponseData{
+		Content:         m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		AllowedMentions: &m.AllowedMentions,
+		Flags:           m.Flags,
+		Files:           m.Files,
+	}
 }

@@ -2,6 +2,7 @@ package premium
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"emperror.dev/errors"
@@ -120,7 +121,7 @@ func GuildPremiumTier(guildID int64) (PremiumTier, error) {
 		return PremiumTierNone, err
 	}
 
-	if common.ContainsStringSlice(flags, FeatureFlagPremiumFull) {
+	if slices.Contains(flags, FeatureFlagPremiumFull) {
 		return PremiumTierPremium, nil
 	}
 
@@ -206,10 +207,7 @@ func FindSource(sourceID string) PremiumSource {
 func handleNewPremiumGuild(evt *schEventsModels.ScheduledEvent, data interface{}) (retry bool, err error) {
 	for _, v := range common.Plugins {
 		if cast, ok := v.(NewPremiumGuildListener); ok {
-			err := cast.OnNewPremiumGuild(evt.GuildID)
-			if err != nil {
-				return scheduledevents2.CheckDiscordErrRetry(err), err
-			}
+			cast.OnNewPremiumGuild(evt.GuildID)
 		}
 	}
 
@@ -219,13 +217,9 @@ func handleNewPremiumGuild(evt *schEventsModels.ScheduledEvent, data interface{}
 func handleRemovedPremiumGuild(evt *schEventsModels.ScheduledEvent, data interface{}) (retry bool, err error) {
 	for _, v := range common.Plugins {
 		if cast, ok := v.(RemovedPremiumGuildListener); ok {
-			err := cast.OnRemovedPremiumGuild(evt.GuildID)
-			if err != nil {
-				return scheduledevents2.CheckDiscordErrRetry(err), err
-			}
+			cast.OnRemovedPremiumGuild(evt.GuildID)
 		}
 	}
-
 	return false, nil
 }
 

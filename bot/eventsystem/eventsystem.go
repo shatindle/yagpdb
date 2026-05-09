@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -86,7 +87,7 @@ func (e *EventData) WithContext(ctx context.Context) *EventData {
 
 // HasFeatureFlag returns true if the guild the event came from has the provided feature flag
 func (e *EventData) HasFeatureFlag(flag string) bool {
-	return common.ContainsStringSlice(e.GuildFeatureFlags, flag)
+	return slices.Contains(e.GuildFeatureFlags, flag)
 }
 
 // EmitEvent emits an event
@@ -313,19 +314,7 @@ func HandleEvent(s *discordgo.Session, evt interface{}) {
 		return
 	}
 
-	if s.ShardID >= len(workers) || workers[s.ShardID] == nil {
-		logrus.Errorf("bad shard event: sid: %d, len: %d", s.ShardID, len(workers))
-		return
-	}
-
-	select {
-	case workers[s.ShardID] <- evtData:
-		return
-	default:
-		logrus.Errorf("Max events in queue: %d, %d", len(workers[s.ShardID]), s.ShardID)
-		logrus.Warningf("excess Discord event in queue for %d, %d with data %#v", len(workers[s.ShardID]), s.ShardID, evtData)
-		workers[s.ShardID] <- evtData // attempt to send it anyways for now
-	}
+	queueEvent(evtData)
 }
 
 func QueueEventNonDiscord(evtData *EventData) {
@@ -337,6 +326,10 @@ func QueueEventNonDiscord(evtData *EventData) {
 		return
 	}
 
+	queueEvent(evtData)
+}
+
+func queueEvent(evtData *EventData) {
 	s := evtData.Session
 	if s.ShardID >= len(workers) || workers[s.ShardID] == nil {
 		logrus.Errorf("bad shard event: sid: %d, len: %d", s.ShardID, len(workers))
@@ -348,7 +341,15 @@ func QueueEventNonDiscord(evtData *EventData) {
 		return
 	default:
 		logrus.Errorf("Max events in queue: %d, %d", len(workers[s.ShardID]), s.ShardID)
-		logrus.Warningf("excess Discord event in queue for %d, %d with data %#v", len(workers[s.ShardID]), s.ShardID, evtData)
+		guildID := int64(0)
+		if evtData.GS != nil {
+			guildID = evtData.GS.ID
+		}
+		if evtData.Type == EventPresenceUpdate {
+			logrus.Warningf("event queue is full, discarding presence update for guild: %d", guildID)
+			return
+		}
+		logrus.Warningf("excess event type: %s, sid: %d, guildID: %d, data: %#v", evtData.Type, s.ShardID, guildID, evtData.EvtInterface)
 		workers[s.ShardID] <- evtData // attempt to send it anyways for now
 	}
 }

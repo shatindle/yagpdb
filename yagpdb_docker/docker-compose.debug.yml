@@ -4,11 +4,20 @@ volumes:
   cert_cache:
   soundboard:
 
+
 networks:
   default:
 
+
 services:
-  app:
+
+  nirn: 
+    image: ghcr.io/germanoeich/nirn-proxy
+    restart: unless-stopped
+    networks:
+      - default
+
+  yagpdb:
     build:
       # We change context so that we can copy the local repo in during
       # development
@@ -16,6 +25,7 @@ services:
       dockerfile: yagpdb_docker/Dockerfile.debug
     restart: unless-stopped
     depends_on:
+      - nirn
       - redis
       - db
     networks:
@@ -27,7 +37,7 @@ services:
     ports:
       - '5000:5000'
       - '4000:4000'
-      - '5100-5999:5100-5999'
+      #- '5100-5999:5100-5999'
     env_file:
       - app.env
     security_opt:
@@ -44,6 +54,8 @@ services:
   db:
     image: docker.io/postgres:11
     restart: unless-stopped
+    ports:
+      - 5432:5432
     volumes:
       - db:/var/lib/postgresql/data
     networks:

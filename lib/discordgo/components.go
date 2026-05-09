@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ComponentType is type of component.
@@ -28,6 +29,10 @@ const (
 	SeparatorComponent             ComponentType = 14
 	ActivityContentComponent       ComponentType = 16
 	ContainerComponent             ComponentType = 17
+	LabelComponent                 ComponentType = 18
+	RadioGroupComponent            ComponentType = 21
+	CheckboxGroupComponent         ComponentType = 22
+	CheckboxComponent              ComponentType = 23
 )
 
 // MessageComponent is a base interface for all message components.
@@ -51,8 +56,6 @@ func (umc *unmarshalableMessageComponent) UnmarshalJSON(src []byte) error {
 	}
 
 	switch v.Type {
-	case ActivityContentComponent:
-		umc.MessageComponent = &ActivityContent{}
 	case ActionsRowComponent:
 		umc.MessageComponent = &ActionsRow{}
 	case ButtonComponent:
@@ -76,8 +79,17 @@ func (umc *unmarshalableMessageComponent) UnmarshalJSON(src []byte) error {
 		umc.MessageComponent = &Separator{}
 	case ContainerComponent:
 		umc.MessageComponent = &Container{}
+	case LabelComponent:
+		umc.MessageComponent = &Label{}
+	case RadioGroupComponent:
+		umc.MessageComponent = &RadioGroup{}
+	case CheckboxGroupComponent:
+		umc.MessageComponent = &CheckboxGroup{}
+	case CheckboxComponent:
+		umc.MessageComponent = &Checkbox{}
 	default:
-		return fmt.Errorf("unknown component type: %d", v.Type)
+		logrus.Warnf("unknown component type: %d", v.Type)
+		umc.MessageComponent = &UnknownComponent{}
 	}
 	return json.Unmarshal(src, umc.MessageComponent)
 }
@@ -92,86 +104,43 @@ func MessageComponentFromJSON(b []byte) (MessageComponent, error) {
 	return u.MessageComponent, nil
 }
 
+type UnknownComponent struct {
+	TopLevelComponent
+}
+
 // TopLevelComponent is an interface for message components which can be used on the top level of a message.
 type TopLevelComponent interface {
 	MessageComponent
 	IsTopLevel() bool
+	IsModalSupported() bool
 }
 
 // InteractiveComponent is an interface for message components which can be interacted with.
 type InteractiveComponent interface {
 	MessageComponent
 	IsInteractive() bool
+	IsAllowedInLabel() bool
 }
 
-type ActivityContentInventoryTrait struct {
-	Type            int  `json:"type"`
-	DurationSeconds int  `json:"duration_seconds"`
-	FirstTime       bool `json:"first_time"`
-}
-
-type ActivityContentInventorySignature struct {
-	Version   int    `json:"version"`
-	Signature string `json:"signature"`
-	Kid       string `json:"kid"`
-}
-
-type ActivityContentInventoryExtra struct {
-	Type          int    `json:"type"`
-	Platform      int    `json:"platform"`
-	GameName      string `json:"game_name"`
-	ApplicationID string `json:"application_id"`
-}
-
-type ActivityContentInventoryEntry struct {
-	ID           int                               `json:"id"`
-	Traits       []ActivityContentInventoryTrait   `json:"traits"`
-	StartedAt    time.Time                         `json:"started_at"`
-	Signature    ActivityContentInventorySignature `json:"signature"`
-	Participants []string                          `json:"participants"`
-	EndedAt      time.Time                         `json:"ended_at"`
-	ContentType  int                               `json:"content_type"`
-	AuthorType   int                               `json:"author_type"`
-	AuthorID     string                            `json:"author_id"`
-	Extra        ActivityContentInventoryExtra     `json:"extra"`
-}
-
-type ActivityContent struct {
-	InventoryEntry ActivityContentInventoryEntry `json:"inventory_entry"`
-}
-
-// Type is a method to get the type of a component.
-func (r ActivityContent) Type() ComponentType {
-	return ActionsRowComponent
-}
-
-// IsTopLevel is a method to assert the component as top level.
-func (ActivityContent) IsTopLevel() bool {
-	return true
-}
-
-// MarshalJSON is a method for marshaling ActionsRow to a JSON object.
-func (r ActivityContent) MarshalJSON() ([]byte, error) {
-	type activityContent ActivityContent
+func (r UnknownComponent) MarshalJSON() ([]byte, error) {
+	type unknownComponent UnknownComponent
 	return json.Marshal(struct {
-		activityContent
+		unknownComponent
 		Type ComponentType `json:"type"`
 	}{
-		activityContent: activityContent(r),
-		Type:            r.Type(),
+		Type: r.Type(),
 	})
 }
 
-// UnmarshalJSON is a helper function to unmarshal ActivityContent
-func (r *ActivityContent) UnmarshalJSON(data []byte) error {
+func (r *UnknownComponent) UnmarshalJSON(data []byte) error {
 	var v struct {
-		ActivityContent ActivityContent `json:"components"`
+		UnknownComponent UnknownComponent `json:"components"`
 	}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
 	}
-	*r = v.ActivityContent
+	*r = v.UnknownComponent
 	return err
 }
 
@@ -223,6 +192,11 @@ func (r ActionsRow) Type() ComponentType {
 // IsTopLevel is a method to assert the component as top level.
 func (ActionsRow) IsTopLevel() bool {
 	return true
+}
+
+// IsModalSupported is a method to assert the component as modal supported.
+func (ActionsRow) IsModalSupported() bool {
+	return false
 }
 
 // ButtonStyle is style of button.
@@ -288,6 +262,10 @@ func (Button) IsInteractive() bool {
 	return true
 }
 
+func (Button) IsAllowedInLabel() bool {
+	return false
+}
+
 // IsAccessory is a method to assert the component as an accessory.
 func (Button) IsAccessory() bool {
 	return true
@@ -350,6 +328,9 @@ type SelectMenu struct {
 	// NOTE: Number of entries should be in the range defined by MinValues and MaxValues.
 	DefaultValues []SelectMenuDefaultValue `json:"default_values,omitempty"`
 
+	// Values is a list of values selected by the user, only filled when the select menu is submitted.
+	Values []string `json:"values,omitempty"`
+
 	Options  []SelectMenuOption `json:"options,omitempty"`
 	Disabled bool               `json:"disabled"`
 	Required bool               `json:"required"`
@@ -364,6 +345,10 @@ func (s SelectMenu) Type() ComponentType {
 		return ComponentType(s.MenuType)
 	}
 	return SelectMenuComponent
+}
+
+func (SelectMenu) IsAllowedInLabel() bool {
+	return true
 }
 
 // MarshalJSON is a method for marshaling SelectMenu to a JSON object.
@@ -387,7 +372,7 @@ func (SelectMenu) IsInteractive() bool {
 // TextInput represents text input component.
 type TextInput struct {
 	CustomID    string         `json:"custom_id"`
-	Label       string         `json:"label"`
+	Label       string         `json:"label,omitempty"`
 	Style       TextInputStyle `json:"style"`
 	Placeholder string         `json:"placeholder,omitempty"`
 	Value       string         `json:"value,omitempty"`
@@ -399,6 +384,10 @@ type TextInput struct {
 // Type is a method to get the type of a component.
 func (TextInput) Type() ComponentType {
 	return TextInputComponent
+}
+
+func (TextInput) IsAllowedInLabel() bool {
+	return true
 }
 
 // MarshalJSON is a method for marshaling TextInput to a JSON object.
@@ -464,7 +453,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 func (s *Section) UnmarshalJSON(data []byte) error {
 	var v struct {
 		RawComponents []unmarshalableMessageComponent `json:"components"`
-		RawAccessory  unmarshalableMessageComponent   `json:"accessory"`
+		RawAccessory  *unmarshalableMessageComponent  `json:"accessory"`
 	}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
@@ -476,14 +465,17 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		comp := v.MessageComponent
 		s.Components[i], ok = comp.(SectionComponentPart)
 		if !ok {
-			return errors.New("non text display passed to section component unmarshaller")
+			return errors.New("non text display passed to section component")
 		}
+	}
+	if v.RawAccessory == nil {
+		return errors.New("missing accessory component in section")
 	}
 
 	accessory := v.RawAccessory.MessageComponent
 	s.Accessory, ok = accessory.(AccessoryComponent)
 	if !ok {
-		return errors.New("non accessory component passed to section component unmarshaller")
+		return errors.New("non accessory component passed to section component")
 	}
 
 	return err
@@ -499,11 +491,13 @@ func (Section) IsTopLevel() bool {
 	return true
 }
 
+func (Section) IsModalSupported() bool {
+	return false
+}
+
 func GetTextDisplayContent(component TopLevelComponent) (contents []string) {
 	switch typed := component.(type) {
 	case ActionsRow:
-		return
-	case ActivityContent:
 		return
 	case Section:
 		for _, c := range typed.Components {
@@ -514,16 +508,69 @@ func GetTextDisplayContent(component TopLevelComponent) (contents []string) {
 		}
 	case Container:
 		for _, c := range typed.Components {
-			comp, ok := c.(TopLevelComponent)
-			if ok {
-				contents = append(contents, GetTextDisplayContent(comp)...)
-			}
+			contents = append(contents, GetTextDisplayContent(c)...)
 		}
 	case TextDisplay:
 		contents = append(contents, typed.Content)
 	}
 
 	return
+}
+
+// Label is a top-level layout component.
+// Labels wrap modal components with text as a label and optional description.
+type Label struct {
+	// Unique identifier for the component; auto populated through increment if not provided.
+	ID          int                  `json:"id,omitempty"`
+	Label       string               `json:"label"`
+	Description string               `json:"description,omitempty"`
+	Component   InteractiveComponent `json:"component"`
+}
+
+// Type is a method to get the type of a component.
+
+func (Label) Type() ComponentType {
+	return LabelComponent
+}
+
+// UnmarshalJSON is a method for unmarshaling Label from JSON
+
+func (l *Label) UnmarshalJSON(data []byte) error {
+	type label Label
+	var v struct {
+		label
+		RawComponent unmarshalableMessageComponent `json:"component"`
+	}
+
+	err := json.Unmarshal(data, &v)
+	if err != nil {
+		return err
+	}
+
+	*l = Label(v.label)
+	l.Component = v.RawComponent.MessageComponent.(InteractiveComponent)
+	return nil
+}
+
+// MarshalJSON is a method for marshaling Label to a JSON object.
+func (l Label) MarshalJSON() ([]byte, error) {
+	type label Label
+
+	return json.Marshal(struct {
+		label
+		Type ComponentType `json:"type"`
+	}{
+		label: label(l),
+		Type:  l.Type(),
+	})
+}
+
+func (Label) IsTopLevel() bool {
+	return true
+}
+
+func (Label) IsModalSupported() bool {
+	return true
 }
 
 // TextDisplay represents text display component.
@@ -548,6 +595,10 @@ func (d TextDisplay) MarshalJSON() ([]byte, error) {
 // Type is a method to get the type of a component.
 func (TextDisplay) Type() ComponentType {
 	return TextDisplayComponent
+}
+
+func (TextDisplay) IsModalSupported() bool {
+	return true
 }
 
 // IsTopLevel is a method to assert the component as top level.
@@ -634,6 +685,10 @@ func (MediaGallery) IsTopLevel() bool {
 	return true
 }
 
+func (MediaGallery) IsModalSupported() bool {
+	return false
+}
+
 // ComponentFile represents file component.
 type ComponentFile struct {
 	ID      int               `json:"id,omitempty"`
@@ -662,6 +717,10 @@ func (ComponentFile) Type() ComponentType {
 // IsTopLevel is a method to assert the component as top level.
 func (ComponentFile) IsTopLevel() bool {
 	return true
+}
+
+func (ComponentFile) IsModalSupported() bool {
+	return false
 }
 
 // SeparatorSpacing is the size of padding in a separator
@@ -702,6 +761,10 @@ func (Separator) IsTopLevel() bool {
 	return true
 }
 
+func (Separator) IsModalSupported() bool {
+	return false
+}
+
 // Container is a top-level layout component that allows you to join text contextually with an accessory.
 type Container struct {
 	ID          int                 `json:"id,omitempty"`
@@ -725,15 +788,21 @@ func (s Container) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON is a helper function to unmarshal Container.
 func (c *Container) UnmarshalJSON(data []byte) error {
+	type container Container
 	var v struct {
+		container
 		RawComponents []unmarshalableMessageComponent `json:"components"`
 	}
+
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
 	}
+
 	var ok bool
+	*c = Container(v.container)
 	c.Components = make([]TopLevelComponent, len(v.RawComponents))
+
 	for i, v := range v.RawComponents {
 		comp := v.MessageComponent
 		c.Components[i], ok = comp.(TopLevelComponent)
@@ -752,5 +821,135 @@ func (c Container) Type() ComponentType {
 
 // IsTopLevel is a method to assert the component as top level.
 func (Container) IsTopLevel() bool {
+	return true
+}
+
+func (Container) IsModalSupported() bool {
+	return false
+}
+
+type RadioGroupOption struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
+type RadioGroup struct {
+	ID       int                `json:"id,omitempty"`
+	CustomID string             `json:"custom_id"`
+	Options  []RadioGroupOption `json:"options"`
+	Required *bool              `json:"required,omitempty"`
+	Value    string             `json:"value,omitempty"`
+}
+
+// MarshalJSON is a method for marshaling RadioGroupActionComponent to a JSON object.
+func (t RadioGroup) MarshalJSON() ([]byte, error) {
+	type radioGroup RadioGroup
+	var truth = true
+	if t.Required == nil {
+		t.Required = &truth
+	}
+
+	return json.Marshal(struct {
+		radioGroup
+		Type ComponentType `json:"type"`
+	}{
+		radioGroup: radioGroup(t),
+		Type:       t.Type(),
+	})
+}
+
+// Type is a method to get the type of a component.
+func (RadioGroup) Type() ComponentType {
+	return RadioGroupComponent
+}
+
+func (RadioGroup) IsInteractive() bool {
+	return true
+}
+
+func (RadioGroup) IsAllowedInLabel() bool {
+	return true
+}
+
+type CheckboxGroup struct {
+	ID        int                   `json:"id,omitempty"`
+	CustomID  string                `json:"custom_id"`
+	Options   []CheckboxGroupOption `json:"options"`
+	MinValues int                   `json:"min_values,omitempty"`
+	MaxValues int                   `json:"max_values,omitempty"`
+	Required  *bool                 `json:"required,omitempty"`
+	Values    []string              `json:"values,omitempty"`
+}
+
+// MarshalJSON is a method for marshaling RadioGroupActionComponent to a JSON object.
+func (t CheckboxGroup) MarshalJSON() ([]byte, error) {
+	type checkboxGroup CheckboxGroup
+
+	var truth = true
+	if t.Required == nil {
+		t.Required = &truth
+	}
+
+	return json.Marshal(struct {
+		checkboxGroup
+		Type ComponentType `json:"type"`
+	}{
+		checkboxGroup: checkboxGroup(t),
+		Type:          t.Type(),
+	})
+}
+
+// Type is a method to get the type of a component.
+func (CheckboxGroup) Type() ComponentType {
+	return CheckboxGroupComponent
+}
+
+func (CheckboxGroup) IsInteractive() bool {
+	return true
+}
+
+func (CheckboxGroup) IsAllowedInLabel() bool {
+	return true
+}
+
+type CheckboxGroupOption struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
+type Checkbox struct {
+	ID       int    `json:"id,omitempty"`
+	CustomID string `json:"custom_id"`
+	Default  bool   `json:"default,omitempty"`
+	Value    bool   `json:"value,omitempty"`
+}
+
+// MarshalJSON is a method for marshaling RadioGroupActionComponent to a JSON object.
+func (t Checkbox) MarshalJSON() ([]byte, error) {
+	type checkbox Checkbox
+
+	return json.Marshal(struct {
+		checkbox
+		Type ComponentType `json:"type"`
+	}{
+		checkbox: checkbox(t),
+		Type:     t.Type(),
+	})
+}
+
+// Type is a method to get the type of a component.
+func (Checkbox) Type() ComponentType {
+	return CheckboxComponent
+}
+
+func (Checkbox) IsInteractive() bool {
+	return true
+}
+
+func (Checkbox) IsAllowedInLabel() bool {
 	return true
 }

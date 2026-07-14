@@ -53,7 +53,8 @@ var (
 		discordgo.GatewayIntentGuildModeration,
 		discordgo.GatewayIntentGuildExpressions,
 		discordgo.GatewayIntentGuildVoiceStates,
-		discordgo.GatewayIntentGuildPresences,
+		// should not need this for what we're doing...
+		// discordgo.GatewayIntentGuildPresences,
 		discordgo.GatewayIntentGuildMessages,
 		discordgo.GatewayIntentGuildMessageReactions,
 		discordgo.GatewayIntentDirectMessages,

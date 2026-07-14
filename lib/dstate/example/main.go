@@ -38,7 +38,8 @@ func main() {
 		discordgo.GatewayIntentGuildWebhooks,
 		discordgo.GatewayIntentGuildInvites,
 		discordgo.GatewayIntentGuildVoiceStates,
-		discordgo.GatewayIntentGuildPresences,
+		// should not need this for what we're doing...
+		// discordgo.GatewayIntentGuildPresences,
 		discordgo.GatewayIntentGuildMessages,
 		discordgo.GatewayIntentGuildMessageReactions,
 		discordgo.GatewayIntentGuildMessageTyping,
